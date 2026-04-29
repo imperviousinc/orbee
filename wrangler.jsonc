@@ -1,0 +1,35 @@
+// Wrangler config for the two Cloudflare Worker deployments backing
+// this repo. Each named env is a fully independent Worker:
+//
+//   orbee-landing  →  orbee.chat       (static marketing page)
+//   orbee-app      →  app.orbee.chat   (SolidJS SPA, SPA fallback on)
+//
+// Cloudflare Workers Builds expects this file at the repo root. Each
+// CF project's deploy command targets one env via `--env <name>`:
+//
+//   npx wrangler deploy --env landing
+//   npx wrangler deploy --env app
+//
+// Custom domains are bound per-env in the CF dashboard.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "orbee",
+  "compatibility_date": "2025-04-28",
+  "env": {
+    "landing": {
+      "name": "orbee-landing",
+      "main": "./worker/landing.ts",
+      "assets": {
+        "directory": "./dist-landing",
+        "binding": "ASSETS"
+      }
+    },
+    "app": {
+      "name": "orbee-app",
+      "assets": {
+        "directory": "./dist-app",
+        "not_found_handling": "single-page-application"
+      }
+    }
+  }
+}

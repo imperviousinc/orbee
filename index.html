@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbee - your name, your people, your rules</title>
+    <meta name="description" content="A group chat app where your name is yours for life, the server is whoever you want, and nobody can lock you out." />
+
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#151513" />
+
+    <!-- Open Graph / Twitter card. og-image.png is a 1200×630 PNG of
+         the landing hero generated from the live page (see public/). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Orbee" />
+    <meta property="og:title" content="Orbee - your name, your people, your rules" />
+    <meta property="og:description" content="A group chat app where your name is yours for life, the server is whoever you want, and nobody can lock you out." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Orbee - an open world for group chat" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Orbee - your name, your people, your rules" />
+    <meta name="twitter:description" content="A group chat app where your name is yours for life, the server is whoever you want, and nobody can lock you out." />
+    <meta name="twitter:image" content="/og-image.png" />
+
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700&family=IM+Fell+English+SC&family=Fragment+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root{
+            /* ===== Design system tokens ===== */
+            /* --bg-deep matches the app's #151513 so the click-through
+               from "Open in browser" lands on the same surface tone.
+               The landing used to sit a few stops darker (#0f0f0e),
+               which made the transition feel like dropping into a
+               brighter room. */
+            --bg-deep:#151513;
+            --bg-raised:#1d1e24;
+            --bg-panel:#17171615;
+            --bg-panel-solid:#18181715;
+            --text-primary:#e8e9eb;
+            --text-secondary:#8a8e94;
+            --text-muted:#5a5a62;
+            --text-faint:#3a3a3e;
+            --accent:#d946ef;
+            --accent-dim:rgba(217,70,239,0.12);
+            --accent-glow:rgba(217,70,239,0.22);
+            --border:rgba(255,255,255,0.06);
+            --border-subtle:rgba(255,255,255,0.05);
+            --scope-line:rgba(217,70,239,0.015);
+        }
+        *{margin:0;padding:0;box-sizing:border-box;-webkit-font-smoothing:antialiased;}
+        html,body{
+            background:var(--bg-deep);
+            color:var(--text-primary);
+            font-family:'Hanken Grotesk',system-ui,-apple-system,sans-serif;
+            font-weight:400;
+            font-feature-settings:'cv02','cv03','cv04','cv11';
+            overflow-x:hidden;
+        }
+        body{position:relative;}
+        /* Very faint scope grid + vignette for atmosphere, not drama */
+        body::before{
+            content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+            background-image:
+                    repeating-linear-gradient(0deg,var(--scope-line) 0,var(--scope-line) 1px,transparent 1px,transparent 160px),
+                    repeating-linear-gradient(90deg,var(--scope-line) 0,var(--scope-line) 1px,transparent 1px,transparent 160px);
+        }
+        body::after{
+            content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+            background:radial-gradient(ellipse 140% 100% at 50% 20%, transparent 55%, rgba(0,0,0,0.5) 100%);
+        }
+
+        a{color:inherit;text-decoration:none;}
+
+        /* ============ NAV ============ */
+        /* The sticky nav fades into the hero with a multi-stop gradient
+           rather than a hard border + heavy backdrop-blur. Backdrop-blur
+           on a low-alpha tint over near-black content produces visible
+           ring banding on most GPUs; the gradient mask hides the seam
+           and avoids the extra compositor pass. */
+        nav{
+            position:sticky;top:0;z-index:50;
+            background:linear-gradient(to bottom,
+                rgba(21,21,19,0.96) 0%,
+                rgba(21,21,19,0.92) 50%,
+                rgba(21,21,19,0.78) 80%,
+                rgba(21,21,19,0) 100%);
+            padding-bottom:14px;
+        }
+        .nav-inner{
+            max-width:1280px;margin:0 auto;
+            padding:14px 32px 0;
+            display:flex;align-items:center;justify-content:space-between;
+        }
+        .nav-brand{
+            display:flex;align-items:center;gap:12px;
+            font-family:'IM Fell English SC',serif;
+            font-size:22px;letter-spacing:0.01em;
+        }
+        .nav-brand canvas{image-rendering:pixelated;}
+        .nav-brand .beta{
+            font-family:'Fragment Mono',monospace;
+            font-size:9px;letter-spacing:0.22em;
+            color:var(--accent);padding:3px 10px 2px;
+            background:rgba(217,70,239,0.06);
+            border:1px solid rgba(217,70,239,0.2);
+            border-radius:999px;
+            text-transform:uppercase;
+        }
+        .nav-links{
+            display:flex;align-items:center;gap:28px;
+            font-family:'Hanken Grotesk',sans-serif;
+            font-size:14px;font-weight:500;
+            color:var(--text-secondary);
+        }
+        .nav-links a{transition:color 0.15s;}
+        .nav-links a:hover{color:var(--text-primary);}
+        .nav-cta{
+            background:rgba(255,255,255,0.04);
+            border:1px solid rgba(255,255,255,0.14);
+            color:var(--text-primary);
+            padding:9px 20px;border-radius:999px;
+            font-family:'Hanken Grotesk',sans-serif;
+            font-size:13px;font-weight:500;
+            cursor:pointer;
+            transition:all 0.15s;
+        }
+        .nav-cta:hover{
+            background:rgba(255,255,255,0.08);
+            border-color:rgba(255,255,255,0.28);
+        }
+
+        @media (max-width: 720px){
+            .nav-inner{padding:12px 20px;}
+            .nav-links{display:none;}
+        }
+
+        /* ============ HERO TEXT ============ */
+        /* Centered, quiet, generous. The headline is the point - the scene
+           below carries the character work. No speech bubble, no eyebrow
+           badge with a pulsing dot, no platform list. One idea per moment. */
+        .hero{
+            position:relative;z-index:1;
+            max-width:920px;
+            margin:0 auto;
+            padding:120px 32px 40px;
+            text-align:center;
+        }
+
+        .hero-eyebrow{
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;letter-spacing:0.28em;
+            color:var(--text-muted);
+            text-transform:uppercase;
+            margin-bottom:32px;
+        }
+
+        .hero-title{
+            font-family:'IM Fell English SC',serif;
+            font-size:clamp(56px, 8vw, 104px);
+            font-weight:400;
+            letter-spacing:0.005em;
+            line-height:0.98;
+            margin-bottom:28px;
+            color:var(--text-primary);
+        }
+        .hero-title .accent-phrase{
+            color:var(--accent);
+
+        }
+
+        .hero-tagline{
+            font-family:'IM Fell English SC',serif;
+            font-size:clamp(22px, 2.6vw, 30px);
+            font-weight:400;
+            letter-spacing:0.01em;
+            color:var(--text-secondary);
+            line-height:1.3;
+            margin-bottom:20px;
+            max-width:640px;
+            margin-left:auto;margin-right:auto;
+        }
+        .hero-tagline em{
+            font-style:normal;
+            color:var(--text-primary);
+        }
+
+        .hero-desc{
+            font-size:16px;
+            color:var(--text-muted);
+            line-height:1.6;
+            font-weight:300;
+            max-width:520px;
+            margin:0 auto 44px;
+        }
+
+        .hero-cta-row{
+            display:inline-flex;
+            align-items:center;
+            gap:24px;
+            flex-wrap:wrap;
+            justify-content:center;
+        }
+        .hero-primary{
+            background:var(--accent);
+            border:1px solid var(--accent);
+            color:#fafafa;
+            padding:15px 26px;border-radius:999px;
+            font-family:'Hanken Grotesk',sans-serif;
+            font-size:15px;font-weight:600;letter-spacing:0.01em;
+            cursor:pointer;
+            transition:all 0.2s;
+            display:inline-flex;align-items:center;gap:10px;
+        }
+        .hero-primary .arrow{
+            display:inline-block;
+            transition:transform 0.2s;
+        }
+        .hero-primary:hover{
+            background:#e879f9;
+            transform:translateY(-1px);
+        }
+        .hero-primary:hover .arrow{transform:translateX(3px);}
+
+        .hero-secondary{
+            font-family:'Hanken Grotesk',sans-serif;
+            font-size:14px;color:var(--text-secondary);
+            font-weight:400;
+            transition:color 0.15s;
+        }
+        .hero-secondary:hover{color:var(--text-primary);}
+
+        /* ============ HERO SCENE ============ */
+        /* This is where the mascot work happens. Orbee sits centered and
+           larger than any other character. A handful of "friend" creatures
+           float around him at varying heights and sizes - each drifts on
+           its own timing so the scene feels alive without strobing.
+           The stage is lit by a single soft radial glow on the section
+           itself (see below) - no inner rectangular divs, no competing
+           light sources, no hard edges. */
+        .hero-scene{
+            position:relative;z-index:1;
+            max-width:1100px;
+            margin:0 auto;
+            padding:0 32px;
+            height:420px;
+        }
+        /* Very subtle ambient stage glow. Fades to zero alpha by 60% of
+           the radius, so it's already invisible well inside the container
+           - no edge can form. More atmosphere than spotlight. */
+        .hero-scene::before{
+            content:'';
+            position:absolute;
+            inset:0;
+            background:radial-gradient(
+                    ellipse 50% 42% at 50% 72%,
+                    rgba(217,70,239,0.10) 0%,
+                    rgba(217,70,239,0.04) 20%,
+                    rgba(217,70,239,0.02) 40%,
+                    rgba(217,70,239,0.00) 60%,
+                    rgba(217,70,239,0.00) 75%,
+                    transparent 90%
+            );
+            pointer-events:none;
+            z-index:0;
+        }
+        .scene-stage{
+            position:relative;
+            width:100%;height:100%;
+            z-index:1;
+        }
+
+        /* Single canvas covering the whole stage. The bob/breathe + drop
+           shadow that used to live on .friend / .orbee-anchor DOM nodes
+           are now rendered inside the canvas (per-sprite pixel offsets
+           + a built-in soft halo pass) so a single GPU layer composites
+           the scene. */
+        .scene-canvas{
+            position:absolute;
+            inset:0;
+            width:100%;
+            height:100%;
+            image-rendering:pixelated;
+            z-index:1;
+            pointer-events:none;
+        }
+        /* Tiny sparkle accents scattered through the scene - like GitHub's starfield */
+        .spark{
+            position:absolute;
+            width:2px;height:2px;
+            background:var(--accent);
+            border-radius:50%;
+            box-shadow:0 0 4px var(--accent);
+            opacity:0.6;
+            animation:sparkle 3s ease-in-out infinite;
+            animation-delay:var(--d, 0s);
+        }
+        @keyframes sparkle{
+            0%,100%{opacity:0.2;}
+            50%{opacity:0.9;}
+        }
+
+        @media (max-width: 720px){
+            .hero{padding:72px 20px 20px;}
+            .hero-scene{height:320px;padding:0 16px;margin-top:16px;}
+            .orbee-anchor{width:140px;height:140px;bottom:60px;}
+        }
+
+        /* ============ SECTION BASE ============ */
+        section{position:relative;z-index:1;}
+        .container{max-width:1200px;margin:0 auto;padding:0 32px;}
+        @media (max-width: 720px){.container{padding:0 20px;}}
+
+        .section-eyebrow{
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;letter-spacing:0.28em;
+            color:var(--text-muted);
+            text-transform:uppercase;
+            margin-bottom:18px;
+            display:inline-flex;align-items:center;gap:10px;
+        }
+        .section-eyebrow::before{
+            content:'';width:22px;height:1px;
+            background:rgba(255,255,255,0.2);
+        }
+        .section-title{
+            font-family:'IM Fell English SC',serif;
+            font-size:clamp(32px, 4.5vw, 52px);
+            font-weight:400;letter-spacing:0.01em;
+            line-height:1.05;
+            margin-bottom:20px;
+            max-width:640px;
+        }
+        .section-subtitle{
+            font-size:16px;color:var(--text-secondary);
+            line-height:1.6;font-weight:300;
+            max-width:560px;
+            margin-bottom:48px;
+        }
+
+        /* ============ CHAT DEMO SECTION ============ */
+        /* Moved out of the hero and given its own room. Now it reads like
+           "here's what the product looks like" rather than "here's a decorative
+           thing next to our headline". Centering is scoped to the heading
+           block only, so it doesn't leak into the inline-block message bubbles
+           and push them away from their avatar. */
+        .demo-section{padding:120px 0 60px;}
+        .demo-heading{
+            text-align:center;
+            max-width:640px;
+            margin:0 auto 40px;
+        }
+        .demo-heading .section-eyebrow{justify-content:center;}
+        .demo-heading .section-title,
+        .demo-heading .section-subtitle{
+            margin-left:auto;margin-right:auto;
+        }
+        .demo-frame{
+            background:#16161a;
+            border:1px solid var(--border-subtle);
+            border-radius:24px;
+            padding:20px 18px 18px;
+            position:relative;
+            max-width:620px;
+            margin:0 auto;
+            box-shadow:
+                    0 40px 100px rgba(0,0,0,0.55),
+                    0 1px 0 rgba(255,255,255,0.03) inset;
+        }
+        .demo-header{
+            display:flex;align-items:center;justify-content:space-between;
+            padding:4px 8px 12px;
+            border-bottom:1px solid var(--border-subtle);
+            margin-bottom:14px;
+        }
+        .demo-channel{
+            font-family:'IM Fell English SC',serif;
+            font-size:18px;
+            display:flex;align-items:center;gap:6px;
+            color:var(--text-primary);
+        }
+        .demo-channel .hash{color:var(--text-muted);}
+        .demo-meta{
+            display:flex;align-items:center;gap:10px;
+            font-family:'Fragment Mono',monospace;
+            font-size:9px;letter-spacing:0.18em;
+            color:var(--text-muted);
+            text-transform:uppercase;
+        }
+        .demo-meta .sep-dot{color:var(--text-faint);}
+        .demo-onair{
+            color:var(--accent);
+            display:inline-flex;align-items:center;gap:5px;
+        }
+        .demo-onair::before{
+            content:'';width:5px;height:5px;border-radius:50%;
+            background:var(--accent);
+            box-shadow:0 0 6px var(--accent);
+            animation:pulse 1.8s ease-in-out infinite;
+        }
+        @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
+
+        .demo-chat{
+            position:relative;
+            min-height:420px;
+            display:flex;flex-direction:column;
+            gap:18px;padding:8px 4px;
+        }
+
+        .msg{
+            display:flex;gap:10px;align-items:flex-start;
+            animation:msgIn 0.35s ease-out;
+        }
+        @keyframes msgIn{
+            from{opacity:0;transform:translateY(8px);}
+            to{opacity:1;transform:translateY(0);}
+        }
+        .msg-avatar{
+            width:28px;height:28px;flex-shrink:0;
+            border-radius:6px;overflow:hidden;
+            background:var(--bg-raised);
+        }
+        .msg-avatar canvas{image-rendering:pixelated;width:28px;height:28px;}
+        .msg-body{flex:1;min-width:0;}
+        .msg-meta{
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;letter-spacing:0.02em;
+            margin-bottom:6px;
+            display:flex;align-items:center;gap:6px;
+        }
+        .msg-meta .vdot{
+            width:4px;height:4px;border-radius:50%;
+            background:currentColor;
+            box-shadow:0 0 4px currentColor;
+            flex-shrink:0;
+        }
+        .msg-meta .display{color:var(--text-muted);font-weight:400;}
+        .msg-meta .npub-prefix{opacity:0.45;}
+        .msg-meta .handle{letter-spacing:0.01em;}
+
+        .bubble{
+            background:#242428;color:var(--text-primary);
+            padding:8px 14px 8px;
+            border-radius:18px;border-bottom-left-radius:6px;
+            font-size:14px;line-height:1.4;
+            max-width:380px;
+            position:relative;
+            display:inline-block;
+        }
+        .bubble.has-reactions{padding-bottom:4px;}
+        .bubble::after{
+            content:'';position:absolute;bottom:0;left:-6px;
+            width:6px;height:6px;
+            background:var(--tail-col, #242428);
+            -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'><path d='M0,6 L6,6 L6,0 L3,0 L3,3 L0,3 Z' fill='black'/></svg>") no-repeat center / contain;
+            mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'><path d='M0,6 L6,6 L6,0 L3,0 L3,3 L0,3 Z' fill='black'/></svg>") no-repeat center / contain;
+        }
+
+        .typing{
+            background:#242428;
+            padding:11px 14px;
+            border-radius:18px;border-bottom-left-radius:6px;
+            display:inline-flex;align-items:center;gap:4px;
+            position:relative;
+        }
+        .typing .dot{
+            width:5px;height:5px;border-radius:50%;
+            background:var(--text-secondary);
+            animation:typeBounce 1.2s ease-in-out infinite;
+        }
+        .typing .dot:nth-child(2){animation-delay:0.15s;}
+        .typing .dot:nth-child(3){animation-delay:0.3s;}
+        @keyframes typeBounce{
+            0%,60%,100%{transform:translateY(0);opacity:0.4;}
+            30%{transform:translateY(-3px);opacity:1;}
+        }
+        .typing::after{
+            content:'';position:absolute;bottom:0;left:-6px;
+            width:6px;height:6px;background:#242428;
+            -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'><path d='M0,6 L6,6 L6,0 L3,0 L3,3 L0,3 Z' fill='black'/></svg>") no-repeat center / contain;
+            mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'><path d='M0,6 L6,6 L6,0 L3,0 L3,3 L0,3 Z' fill='black'/></svg>") no-repeat center / contain;
+        }
+
+        .bubble .reactions{
+            display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;
+        }
+        .bubble .reaction{
+            display:inline-flex;align-items:center;gap:5px;
+            padding:3px 8px 3px 7px;
+            background:rgba(255,255,255,0.06);
+            border-radius:12px;
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;line-height:1;
+            animation:reactIn 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes reactIn{
+            from{opacity:0;transform:scale(0.4);}
+            to{opacity:1;transform:scale(1);}
+        }
+        .reaction-emoji{font-size:12px;}
+        .reaction-stack{display:inline-flex;align-items:center;}
+        .reactor-chip{
+            display:inline-block;
+            width:14px;height:14px;
+            border-radius:50%;
+            margin-left:-4px;
+            overflow:hidden;
+            position:relative;
+            background:var(--bg-raised);
+            box-shadow:0 0 0 1.5px #242428;
+        }
+        .reactor-chip:first-child{margin-left:0;}
+        .reactor-chip canvas{
+            position:absolute;
+            width:24px;height:24px;
+            top:-5px;left:-5px;
+            image-rendering:pixelated;
+        }
+
+        /* ============ VALUE PROPS ============ */
+        .values{padding:60px 0;}
+        .value-grid{
+            display:grid;grid-template-columns:repeat(3, 1fr);
+            gap:20px;
+        }
+        @media (max-width: 860px){.value-grid{grid-template-columns:1fr;}}
+        .value-card{
+            background:rgba(24,24,23,0.5);
+            border:1px solid var(--border-subtle);
+            border-radius:22px;
+            padding:32px 28px 30px;
+            position:relative;
+            transition:border-color 0.2s, background 0.2s, transform 0.2s;
+        }
+        .value-card:hover{
+            border-color:rgba(217,70,239,0.2);
+            background:rgba(31,31,30,0.7);
+            transform:translateY(-2px);
+        }
+        .value-icon{
+            width:48px;height:48px;
+            display:inline-flex;align-items:center;justify-content:center;
+            margin-bottom:22px;
+            color:var(--accent);
+            background:rgba(217,70,239,0.08);
+            border-radius:16px;
+        }
+        .value-icon svg{stroke-width:1.6;}
+        .value-title{
+            font-family:'IM Fell English SC',serif;
+            font-size:24px;font-weight:400;
+            margin-bottom:12px;letter-spacing:0.01em;
+            color:var(--text-primary);
+        }
+        .value-desc{
+            font-size:14px;color:var(--text-secondary);
+            line-height:1.6;font-weight:300;
+        }
+        .value-desc strong{color:var(--text-primary);font-weight:500;}
+
+        /* ============ COMPARISON ============ */
+        .compare{padding:60px 0;}
+        .compare-wrap{
+            background:rgba(24,24,23,0.5);
+            border:1px solid var(--border-subtle);
+            border-radius:22px;
+            overflow:hidden;
+            position:relative;
+        }
+        .compare-table{width:100%;border-collapse:collapse;}
+        .compare-table th,.compare-table td{
+            padding:18px 22px;
+            text-align:left;
+            border-bottom:1px solid var(--border-subtle);
+            vertical-align:top;
+        }
+        .compare-table thead th{
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;letter-spacing:0.2em;
+            color:var(--text-muted);
+            text-transform:uppercase;
+            font-weight:400;
+            padding:16px 22px;
+            background:rgba(255,255,255,0.015);
+        }
+        .compare-table thead th.orbee-col{color:var(--text-primary);}
+        .compare-table thead th.orbee-col::before{
+            content:'';display:inline-block;
+            width:5px;height:5px;border-radius:50%;
+            background:var(--accent);
+            box-shadow:0 0 6px var(--accent);
+            margin-right:8px;
+            vertical-align:middle;
+        }
+        .compare-table tbody tr:last-child td{border-bottom:none;}
+        .compare-table .feature{
+            font-family:'Fragment Mono',monospace;
+            font-size:12px;letter-spacing:0.04em;
+            color:var(--text-secondary);
+            white-space:nowrap;
+        }
+        .compare-table .them{
+            color:var(--text-muted);
+            font-size:13px;line-height:1.5;
+        }
+        .compare-table .us{
+            color:var(--text-primary);
+            font-size:13px;line-height:1.5;
+        }
+        .compare-table .us strong{color:var(--text-primary);font-weight:600;}
+        @media (max-width: 720px){
+            .compare-table th,.compare-table td{padding:14px;}
+            .compare-table .feature{font-size:11px;}
+            .compare-table .them,.compare-table .us{font-size:12px;}
+        }
+
+        /* ============ DOWNLOADS ============ */
+        .downloads{padding:60px 0 40px;}
+        .dl-grid{
+            display:grid;
+            grid-template-columns:repeat(6, 1fr);
+            gap:12px;
+        }
+        @media (max-width: 920px){.dl-grid{grid-template-columns:repeat(3, 1fr);}}
+        @media (max-width: 540px){.dl-grid{grid-template-columns:repeat(2, 1fr);}}
+
+        .dl-card{
+            background:rgba(24,24,23,0.5);
+            border:1px solid var(--border-subtle);
+            border-radius:20px;
+            padding:24px 18px 20px;
+            text-align:center;
+            position:relative;
+            transition:all 0.15s;
+        }
+        .dl-card.available{
+            cursor:pointer;
+            border-color:rgba(217,70,239,0.25);
+            background:rgba(217,70,239,0.03);
+        }
+        .dl-card.available:hover{
+            border-color:var(--accent);
+            box-shadow:0 0 24px rgba(217,70,239,0.15);
+            transform:translateY(-2px);
+        }
+        .dl-card.soon{opacity:0.5;}
+        .dl-icon{
+            width:32px;height:32px;
+            display:flex;align-items:center;justify-content:center;
+            margin:0 auto 12px;
+            color:var(--text-secondary);
+        }
+        .dl-card.available .dl-icon{color:var(--accent);}
+        .dl-label{
+            font-family:'Fragment Mono',monospace;
+            font-size:11px;letter-spacing:0.1em;
+            color:var(--text-primary);
+            text-transform:uppercase;
+            margin-bottom:6px;
+        }
+        .dl-status{
+            font-family:'Fragment Mono',monospace;
+            font-size:9px;letter-spacing:0.14em;
+            color:var(--text-muted);
+            text-transform:uppercase;
+        }
+        .dl-card.available .dl-status{color:var(--accent);}
+
+        /* ============ FOOTER ============ */
+        footer{
+            padding:64px 0 48px;
+            border-top:1px solid var(--border-subtle);
+            margin-top:60px;
+        }
+        .footer-inner{
+            display:flex;justify-content:space-between;align-items:flex-start;
+            gap:40px;flex-wrap:wrap;
+        }
+        .footer-brand{display:flex;align-items:center;gap:12px;}
+        .footer-brand canvas{image-rendering:pixelated;}
+        .footer-brand-text{
+            font-family:'IM Fell English SC',serif;
+            font-size:20px;
+        }
+        .footer-brand-sub{
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;letter-spacing:0.16em;
+            color:var(--text-muted);
+            text-transform:uppercase;
+            margin-top:2px;
+        }
+        .footer-links{display:flex;gap:40px;flex-wrap:wrap;}
+        .footer-col{display:flex;flex-direction:column;gap:10px;}
+        .footer-col-title{
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;letter-spacing:0.18em;
+            color:var(--text-muted);
+            text-transform:uppercase;
+            margin-bottom:4px;
+        }
+        .footer-col a{
+            font-size:13px;color:var(--text-secondary);
+            transition:color 0.15s;
+        }
+        .footer-col a:hover{color:var(--accent);}
+
+        .footer-bottom{
+            margin-top:40px;padding-top:24px;
+            border-top:1px solid var(--border-subtle);
+            display:flex;justify-content:space-between;align-items:center;gap:16px;
+            font-family:'Fragment Mono',monospace;
+            font-size:10px;letter-spacing:0.14em;
+            color:var(--text-muted);
+            flex-wrap:wrap;
+        }
+    </style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav>
+    <div class="nav-inner">
+        <div class="nav-brand">
+            <canvas id="navMark" width="56" height="56" style="width:28px;height:28px;"></canvas>
+            <span>Orbee</span>
+            <span class="beta">beta</span>
+        </div>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#compare">Compare</a>
+            <a href="#downloads">Download</a>
+            <a href="https://github.com/imperviousinc/orbee">GitHub</a>
+        </div>
+        <a class="nav-cta" href="/n">Open app</a>
+    </div>
+</nav>
+
+
+<!-- ============ HERO ============ -->
+<!--
+  Centered text hero. The only job of this block is to make the promise
+  clearly: "An open world." and what that means. The characters are not
+  here - they get their own stage below.
+-->
+<section class="hero">
+    <h1 class="hero-title">An <span class="accent-phrase">open world.</span></h1>
+    <p class="hero-tagline"><em>Your name.</em> <em>Your people.</em> <em>Your rules.</em></p>
+    <p class="hero-desc">A group chat app where your name is yours for life, the server is whoever you want, and nobody can lock you out.</p>
+
+    <div class="hero-cta-row">
+        <a class="hero-primary" href="/n">
+            <span>Open in browser</span>
+            <span class="arrow">→</span>
+        </a>
+        <a class="hero-secondary" href="#features">Learn more ↓</a>
+    </div>
+</section>
+
+
+<!-- ============ HERO SCENE ============ -->
+<!--
+  The characters' stage. Orbee anchors the middle - bigger, lit by the
+  section's single radial glow. A few friend creatures float around him at
+  varying heights and sizes. Each drifts independently, so the scene is
+  alive without strobing. Sparkle accents scattered around complete the
+  "step into a world" feeling.
+-->
+<section class="hero-scene">
+    <div class="scene-stage" id="sceneStage">
+        <!-- Single canvas hosts every creature + Orbee in the scene
+             (was 7 separate canvases, each running its own rAF - that
+             added up to noticeable jank). One rAF, one fill pipeline,
+             everything composited in a single GPU layer. Sparks
+             stay as DOM (tiny, CSS-animated, no JS cost). -->
+        <canvas class="scene-canvas" id="sceneCanvas"></canvas>
+    </div>
+</section>
+
+
+<!-- ============ CHAT DEMO (now its own section) ============ -->
+<section class="demo-section">
+    <div class="container">
+        <div class="demo-heading">
+            <div class="section-eyebrow">On the air</div>
+            <h2 class="section-title">What it feels like.</h2>
+            <p class="section-subtitle">Communities, living on open standards. Names you can trust. People you can find again anywhere.</p>
+        </div>
+
+        <div class="demo-frame">
+            <div class="demo-header">
+                <div class="demo-channel"><span class="hash">#</span>general</div>
+                <div class="demo-meta">
+                    <span id="zuluTime">09:41Z</span>
+                    <span class="sep-dot">·</span>
+                    <span class="demo-onair">On air</span>
+                </div>
+            </div>
+            <div class="demo-chat" id="demoChat"></div>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============ VALUE PROPS ============ -->
+<section class="values" id="features">
+    <div class="container">
+        <div class="section-eyebrow">What makes it different</div>
+        <h2 class="section-title">It's yours, not theirs.</h2>
+        <p class="section-subtitle">Discord and Telegram are great, until they're not. One policy change, and your community is gone. Orbee's built so that can't happen.</p>
+
+        <div class="value-grid">
+            <div class="value-card">
+                <div class="value-icon">
+                    <svg width="32" height="32" viewBox="0 0 36 36" fill="none"><path d="M18 4 L30 10 L30 20 C30 26 18 32 18 32 C18 32 6 26 6 20 L6 10 Z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M13 17 L17 21 L24 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+                </div>
+                <div class="value-title">A name for life</div>
+                <p class="value-desc">Pick a handle like <strong>myname@orbee</strong> and it's yours forever. Nobody can take it, rename it, or lock you out - not orbee, not anyone.</p>
+            </div>
+
+            <div class="value-card">
+                <div class="value-icon">
+                    <svg width="32" height="32" viewBox="0 0 36 36" fill="none"><rect x="6" y="10" width="24" height="6" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="6" y="20" width="24" height="6" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="10" cy="13" r="1" fill="currentColor"/><circle cx="10" cy="23" r="1" fill="currentColor"/></svg>
+                </div>
+                <div class="value-title">Host it yourself</div>
+                <p class="value-desc">A group lives on a server. <strong>Run your own</strong> for your friends, or join groups on public ones. Disagree with the host? Start your own, bring your name.</p>
+            </div>
+
+            <div class="value-card">
+                <div class="value-icon">
+                    <svg width="32" height="32" viewBox="0 0 36 36" fill="none"><circle cx="18" cy="18" r="12" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M6 18 L30 18 M18 6 C22 10 22 26 18 30 C14 26 14 10 18 6" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+                </div>
+                <div class="value-title">Open world</div>
+                <p class="value-desc">Built on Nostr and Spaces - a set of standards for an open internet. Talk to anyone on any compatible app. <strong>No walled gardens.</strong></p>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============ COMPARISON ============ -->
+<section class="compare" id="compare">
+    <div class="container">
+        <div class="section-eyebrow">How we stack up</div>
+        <h2 class="section-title">vs. the usual suspects.</h2>
+
+        <div class="compare-wrap">
+            <table class="compare-table">
+                <thead>
+                <tr>
+                    <th></th>
+                    <th>Discord · Telegram · Slack</th>
+                    <th class="orbee-col">Orbee</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td class="feature">Your name</td>
+                    <td class="them">The company owns it. Banned? Name's gone.</td>
+                    <td class="us"><strong>Yours for life.</strong> Nobody can take it.</td>
+                </tr>
+                <tr>
+                    <td class="feature">Where it runs</td>
+                    <td class="them">One company's servers. Their terms, their call.</td>
+                    <td class="us"><strong>Any server you want</strong> - yours, ours, a friend's.</td>
+                </tr>
+                <tr>
+                    <td class="feature">Leaving</td>
+                    <td class="them">Locked in. Your messages stay on their servers.</td>
+                    <td class="us"><strong>Pack up and go.</strong> Same name, new server.</td>
+                </tr>
+                <tr>
+                    <td class="feature">Your data</td>
+                    <td class="them">You're the product.</td>
+                    <td class="us"><strong>You're the owner.</strong> No analytics, no tracking.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============ DOWNLOADS ============ -->
+<section class="downloads" id="downloads">
+    <div class="container">
+        <div class="section-eyebrow">Get going</div>
+        <h2 class="section-title">Start chatting.</h2>
+        <p class="section-subtitle">The web app works in any browser - no install, no account. Native apps are on the way.</p>
+
+        <div class="dl-grid">
+            <a class="dl-card available" href="/n">
+                <div class="dl-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12" stroke="currentColor" stroke-width="1.5"/><path d="M4 16 L28 16 M16 4 C20 8 20 24 16 28 C12 24 12 8 16 4" stroke="currentColor" stroke-width="1.5"/></svg>
+                </div>
+                <div class="dl-label">Web</div>
+                <div class="dl-status">Available now</div>
+            </a>
+            <div class="dl-card soon">
+                <div class="dl-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><path d="M22 8 C22 6 21 4 19 4 C18 4 17 5 17 5 C17 5 16 4 15 4 C13 4 12 6 12 8 C12 12 14 20 17 20 C18 20 18 19 19 19 C20 19 20 20 21 20 C24 20 26 12 26 8 Z" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/><path d="M18 4 C19 2 21 2 22 2" stroke="currentColor" stroke-width="1.4" fill="none"/></svg>
+                </div>
+                <div class="dl-label">macOS</div>
+                <div class="dl-status">Soon</div>
+            </div>
+            <div class="dl-card soon">
+                <div class="dl-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><rect x="5" y="7" width="10" height="8" fill="currentColor" opacity="0.6"/><rect x="17" y="7" width="10" height="8" fill="currentColor"/><rect x="5" y="17" width="10" height="8" fill="currentColor"/><rect x="17" y="17" width="10" height="8" fill="currentColor" opacity="0.6"/></svg>
+                </div>
+                <div class="dl-label">Windows</div>
+                <div class="dl-status">Soon</div>
+            </div>
+            <div class="dl-card soon">
+                <div class="dl-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><ellipse cx="16" cy="22" rx="9" ry="6" fill="currentColor" opacity="0.3"/><ellipse cx="16" cy="14" rx="6" ry="8" stroke="currentColor" stroke-width="1.4" fill="none"/><circle cx="13" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></svg>
+                </div>
+                <div class="dl-label">Linux</div>
+                <div class="dl-status">Soon</div>
+            </div>
+            <div class="dl-card soon">
+                <div class="dl-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><rect x="9" y="4" width="14" height="24" rx="3" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="16" cy="24" r="1" fill="currentColor"/></svg>
+                </div>
+                <div class="dl-label">iOS</div>
+                <div class="dl-status">Soon</div>
+            </div>
+            <div class="dl-card soon">
+                <div class="dl-icon">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none"><rect x="7" y="10" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="17" r="1" fill="currentColor"/><circle cx="20" cy="17" r="1" fill="currentColor"/><path d="M12 10 L10 5 M20 10 L22 5" stroke="currentColor" stroke-width="1.4"/></svg>
+                </div>
+                <div class="dl-label">Android</div>
+                <div class="dl-status">Soon</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+<!-- ============ FOOTER ============ -->
+<footer>
+    <div class="container">
+        <div class="footer-inner">
+            <div>
+                <div class="footer-brand">
+                    <canvas id="footMark" width="56" height="56" style="width:28px;height:28px;"></canvas>
+                    <div>
+                        <div class="footer-brand-text">Orbee</div>
+                        <div class="footer-brand-sub">Impervious Inc · 2026</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-links">
+                <div class="footer-col">
+                    <div class="footer-col-title">Standards</div>
+                    <a href="https://github.com/nostr-protocol/nips/blob/master/29.md">NIP-29</a>
+                    <a href="https://spacesprotocol.org">Spaces protocol</a>
+                </div>
+                <div class="footer-col">
+                    <div class="footer-col-title">Source</div>
+                    <a href="https://github.com/imperviousinc/orbee">GitHub</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <span>Open source</span>
+            <span> No tracking · No walled gardens</span>
+        </div>
+    </div>
+</footer>
+
+
+<script>
+    const G = 20;
+    const PX = 5;
+
+    // ---- Orbee mascot sprite ----
+    // Idle Orbee - same BASE_GRID as the app. Rows 2-3 are the antennae,
+    // rows 4-15 are the face/body (eyes at row 9, mouth at row 12).
+    const ORBEE = [
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+        [0,0,0,0,0,1,1,0,1,1,1,1,0,1,1,0,0,0,0,0],
+        [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+        [0,0,0,0,1,0,1,1,1,1,1,1,1,1,0,1,0,0,0,0],
+        [0,0,0,0,1,0,1,0,0,1,1,0,0,1,0,1,0,0,0,0],
+        [0,0,0,0,1,0,1,0,3,1,1,3,0,1,0,1,0,0,0,0],
+        [0,0,0,0,1,0,1,0,0,1,1,0,0,1,0,1,0,0,0,0],
+        [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],
+        [0,0,0,0,0,1,1,1,1,5,5,1,1,1,1,0,0,0,0,0],
+        [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]];
+
+    // Blink frame - eye region (row 9, cols 8-11) zeroed out so eyes
+    // disappear briefly. Same pattern the app uses for idle blink.
+    const ORBEE_BLINK = ORBEE.map((r,y) => y === 9
+      ? [0,0,0,0,1,0,1,0,0,1,1,0,0,1,0,1,0,0,0,0]
+      : r);
+
+    // Renderer ported from the app's SpacesLogo: three passes (outer
+    // glow → main pixel grid with breathing pulse + chromatic
+    // aberration → thin scanlines), plus an occasional CRT glitch
+    // shear on every-third-row. Beats the simple body-bob + blink
+    // the previous pirate variant used.
+    function drawOrbee(canvas, opts){
+        opts = opts || {};
+        const scale = opts.scale || 2.8;
+        const cmap = {0:null, 1:'#d946ef', 3:'#ffffff', 5:'#8b1a8b'};
+        const ctx = canvas.getContext('2d');
+        canvas.width = G * scale;
+        canvas.height = G * scale;
+        let frame = Math.random() * 100;
+        let blinkT = Math.random() * 120, isBlink = false, blinkD = 0;
+        let glitchT = Math.floor(Math.random() * 400);
+        let isGlitch = false, gOff = 0;
+
+        function draw(){
+            frame++;
+            const pulse = frame * 0.022;
+            const fy = Math.sin(frame * 0.03) * 0.6;
+
+            // Blink - eyes close briefly every 100-230 frames for ~7 frames.
+            blinkT++;
+            if (!isBlink && blinkT > 100 + Math.random() * 130) {
+                isBlink = true; blinkD = 0; blinkT = 0;
+            }
+            if (isBlink) { blinkD++; if (blinkD > 7) isBlink = false; }
+            const sprite = isBlink ? ORBEE_BLINK : ORBEE;
+
+            // CRT glitch - sub-pixel horizontal shear on every 3rd row,
+            // ~90ms every 350-600 frames. The signature "alive but a
+            // little glitchy" cue from the app.
+            glitchT++;
+            if (!isGlitch && glitchT > 350 + Math.random() * 250) {
+                isGlitch = true; glitchT = 0;
+                setTimeout(() => { isGlitch = false; gOff = 0; }, 90);
+            }
+            if (isGlitch) gOff = (Math.random() - 0.5) * 8;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Outer glow pass - soft pixel halo, alpha 0.07.
+            ctx.globalAlpha = 0.07;
+            for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+                const v = sprite[y][x]; if (!v) continue;
+                const c = cmap[v]; if (!c) continue;
+                ctx.fillStyle = c;
+                ctx.fillRect(x * scale - 1.5, y * scale + fy - 1.5, scale + 3, scale + 3);
+            }
+
+            // Main pixel pass with breathing alpha + chromatic aberration
+            // on accent eyes (palette 3).
+            for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+                const v = sprite[y][x]; if (!v) continue;
+                const c = cmap[v]; if (!c) continue;
+                let gx = x * scale;
+                if (isGlitch && y % 3 === 0) gx += gOff;
+                const gy = y * scale + fy;
+                ctx.globalAlpha = 0.82 + Math.sin(pulse + x * 0.25 + y * 0.2) * 0.18;
+                ctx.fillStyle = c;
+                ctx.fillRect(gx, gy, scale, scale);
+                if (v === 3) {
+                    ctx.globalAlpha = 0.13;
+                    ctx.fillStyle = '#ff3c8e';
+                    ctx.fillRect(gx - 1.5, gy, 1.5, scale);
+                    ctx.fillStyle = '#4444ff';
+                    ctx.fillRect(gx + scale, gy, 1.5, scale);
+                }
+            }
+            ctx.globalAlpha = 1;
+            requestAnimationFrame(draw);
+        }
+        draw();
+    }
+
+    // ---- Creature generator ----
+    const PALETTES = [
+        {body:'#d946ef', dark:'#3a0a3a', dim:'#8b1a8b', eye:'#00e5ff', eyeHi:'#e8e6e1', ant:'#007a8a'},
+        {body:'#00e5ff', dark:'#004a55', dim:'#006a7a', eye:'#ff3c8e', eyeHi:'#ffc0dd', ant:'#005566'},
+        {body:'#ffb800', dark:'#5a4000', dim:'#8a6a00', eye:'#d946ef', eyeHi:'#f5d6f5', ant:'#6a5500'},
+        {body:'#ff3c8e', dark:'#550020', dim:'#8a0040', eye:'#00e5ff', eyeHi:'#e8e6e1', ant:'#660030'},
+        {body:'#b388ff', dark:'#3a2066', dim:'#6a40aa', eye:'#d946ef', eyeHi:'#f5d6f5', ant:'#4a3077'},
+        {body:'#76ff03', dark:'#2a5500', dim:'#4a8a00', eye:'#ff6e40', eyeHi:'#ffc0a0', ant:'#3a6600'},
+        {body:'#18ffff', dark:'#005555', dim:'#008888', eye:'#ffb800', eyeHi:'#ffe0a0', ant:'#006666'},
+        {body:'#ff6e40', dark:'#552200', dim:'#884400', eye:'#00e5ff', eyeHi:'#e8e6e1', ant:'#663300'}];
+
+    function bodyInvader(cx){const p=[];p.push([cx-4,4,'B'],[cx+3,4,'B']);p.push([cx-3,5,'B'],[cx+2,5,'B']);for(let i=-3;i<=2;i++)p.push([cx+i,6,'B']);for(let i=-4;i<=3;i++)p.push([cx+i,7,(i===-4||i===3)?'D':'B']);p.push([cx-5,7,'B'],[cx+4,7,'B']);for(let r=8;r<=10;r++)for(let i=-5;i<=4;i++)p.push([cx+i,r,(i===-5||i===4)?'D':'B']);for(let i=-4;i<=3;i++)p.push([cx+i,11,(i===-4||i===3)?'D':'B']);for(let i=-3;i<=2;i++)p.push([cx+i,12,'B']);return p;}
+    function bodyBug(cx){const p=[],w=[1,2,3,4,5,5,5,4,3];for(let r=0;r<w.length;r++)for(let i=-w[r];i<w[r];i++){const e=i===-w[r]||i===w[r]-1;p.push([cx+i,4+r,(r===0||r===w.length-1||e)?'D':'B']);}return p;}
+    function bodyOrb(cx){const p=[],w=[3,4,5,6,6,6,6,6,5,4,3];for(let r=0;r<w.length;r++)for(let i=-w[r];i<w[r];i++){const e=i===-w[r]||i===w[r]-1||r===0||r===w.length-1;p.push([cx+i,3+r,e?'D':'B']);}return p;}
+    function bodyShield(cx){const p=[],w=[6,7,7,7,6,5,4,3,2];for(let r=0;r<w.length;r++)for(let i=-w[r];i<w[r];i++){const e=i===-w[r]||i===w[r]-1||r===0||r===w.length-1;p.push([cx+i,3+r,e?'D':'B']);}return p;}
+    function bodyGhost(cx){const p=[],w=[3,4,5,5,5,5,5,5,5,5];for(let r=0;r<w.length;r++)for(let i=-w[r];i<w[r];i++){if(r===w.length-1&&(Math.abs(i)%3===0))continue;const e=i===-w[r]||i===w[r]-1||r===0;p.push([cx+i,3+r,e?'D':'B']);}return p;}
+    const BODIES=[bodyInvader,bodyBug,bodyOrb,bodyShield,bodyGhost];
+
+    function eyesClassic(cx,ey){return[[cx-3,ey-1,null],[cx-2,ey-1,null],[cx-3,ey,'E'],[cx-2,ey,'H'],[cx-3,ey+1,'E'],[cx-2,ey+1,'E'],[cx-3,ey+2,null],[cx-2,ey+2,null],[cx+1,ey-1,null],[cx+2,ey-1,null],[cx+1,ey,'E'],[cx+2,ey,'H'],[cx+1,ey+1,'E'],[cx+2,ey+1,'E'],[cx+1,ey+2,null],[cx+2,ey+2,null]];}
+    function eyesSlit(cx,ey){return[[cx-3,ey,null],[cx-2,ey,'E'],[cx-1,ey,'H'],[cx+1,ey,'E'],[cx+2,ey,'H'],[cx+3,ey,null]];}
+    function eyesCyclops(cx,ey){const p=[];for(let d=-2;d<=1;d++)p.push([cx+d,ey-1,null]);p.push([cx-2,ey,'E'],[cx-1,ey,'E'],[cx,ey,'H'],[cx+1,ey,'E']);p.push([cx-2,ey+1,'E'],[cx-1,ey+1,'E'],[cx,ey+1,'E'],[cx+1,ey+1,'E']);for(let d=-2;d<=1;d++)p.push([cx+d,ey+2,null]);return p;}
+    function eyesDot(cx,ey){return[[cx-2,ey,'E'],[cx-2,ey+1,'H'],[cx+1,ey,'E'],[cx+1,ey+1,'H']];}
+    function eyesWide(cx,ey){return[[cx-4,ey-1,null],[cx-3,ey-1,null],[cx-4,ey,'E'],[cx-3,ey,'H'],[cx-4,ey+1,'E'],[cx-3,ey+1,'E'],[cx+2,ey-1,null],[cx+3,ey-1,null],[cx+2,ey,'E'],[cx+3,ey,'H'],[cx+2,ey+1,'E'],[cx+3,ey+1,'E']];}
+    const EYES=[eyesClassic,eyesSlit,eyesCyclops,eyesDot,eyesWide];
+
+    const antNone=()=>[];
+    const antShort=cx=>[[cx-2,1,'A'],[cx+1,1,'A'],[cx-1,2,'A'],[cx,2,'A'],[cx-2,0,'E'],[cx+1,0,'E']];
+    const antTall=cx=>[[cx-1,3,'A'],[cx,3,'A'],[cx-2,2,'A'],[cx+1,2,'A'],[cx-2,1,'A'],[cx+1,1,'A'],[cx-2,0,'E'],[cx+1,0,'E']];
+    const antCurved=cx=>[[cx-1,3,'A'],[cx,3,'A'],[cx-2,2,'A'],[cx+1,2,'A'],[cx-3,1,'A'],[cx+2,1,'A'],[cx-3,0,'E'],[cx+2,0,'E']];
+    const antSpike=cx=>[[cx-1,3,'A'],[cx,3,'A'],[cx-1,2,'A'],[cx,2,'A'],[cx-1,1,'E'],[cx,1,'E'],[cx-1,0,'H'],[cx,0,'H']];
+    const ANT=[antNone,antShort,antTall,antCurved,antSpike];
+
+    const legNone=()=>[];
+    const legStraight=(cx,ly)=>[[cx-2,ly,'D'],[cx+1,ly,'D'],[cx-2,ly+1,'D'],[cx+1,ly+1,'D']];
+    const legSplayed=(cx,ly)=>[[cx-2,ly,'D'],[cx+1,ly,'D'],[cx-3,ly+1,'D'],[cx+2,ly+1,'D'],[cx-4,ly+2,'D'],[cx+3,ly+2,'D']];
+    const legStubby=(cx,ly)=>[[cx-3,ly,'D'],[cx-2,ly,'D'],[cx+1,ly,'D'],[cx+2,ly,'D']];
+    const legAngled=(cx,ly)=>[[cx-1,ly,'D'],[cx,ly,'D'],[cx-2,ly+1,'D'],[cx+1,ly+1,'D'],[cx-3,ly+2,'B'],[cx+2,ly+2,'B']];
+    const LEGS=[legNone,legStraight,legSplayed,legStubby,legAngled];
+
+    const mNone=()=>[];
+    const mSmirk=(cx,my)=>[[cx-1,my,'M'],[cx,my,'M']];
+    const mWide=(cx,my)=>[[cx-2,my,'M'],[cx-1,my,'M'],[cx,my,'M'],[cx+1,my,'M']];
+    const MOUTHS=[mNone,mSmirk,mWide,mNone];
+
+    function hexBytes(hex){const b=[];for(let i=0;i<Math.min(hex.length,16);i+=2)b.push(parseInt(hex.substr(i,2),16)||0);while(b.length<8)b.push(b.length*37&0xff);return b;}
+
+    // Color codes in the grid:
+    //   1=B body   2=D dark outline   3=M mouth   4=E eye   5=H eye-highlight   6=A antenna
+    // Animation: just blinking, plus a very gentle body bob. Antennae are
+    // static, eyes don't glance around - per design pass we kept only the
+    // one micro-animation that signals "alive" without noise.
+    function drawCreature(canvas, pubkey, pxSize){
+        pxSize = pxSize || PX;
+        const b = hexBytes(pubkey);
+        const pal = PALETTES[b[0] % PALETTES.length];
+        const cx = 10;
+        const grid = Array.from({length:G}, () => Array(G).fill(0));
+        const cmap = {B:1,D:2,M:3,E:4,H:5,A:6};
+        function stamp(px){for(const [x,y,c] of px){if(x>=0&&x<G&&y>=0&&y<G) grid[y][x] = c===null?0:(cmap[c]||0);}}
+        stamp(BODIES[b[1]%BODIES.length](cx));
+        stamp(EYES[b[2]%EYES.length](cx, 8));
+        stamp(ANT[b[3]%ANT.length](cx));
+        stamp(MOUTHS[b[5]%MOUTHS.length](cx, 11));
+        stamp(LEGS[b[4]%LEGS.length](cx, 14));
+        const colors = {1:pal.body, 2:pal.dark, 3:pal.dim, 4:pal.eye, 5:pal.eyeHi, 6:pal.ant};
+
+        // Pre-build the "eyes closed" variant of the grid once: any eye or
+        // eye-highlight pixel in the eye region becomes body color. Swapping
+        // to this for a few frames creates the blink.
+        const blinkGrid = grid.map(row => row.slice());
+        for(let y=7; y<=10; y++){
+            for(let x=0; x<G; x++){
+                if(blinkGrid[y][x] === 4 || blinkGrid[y][x] === 5) blinkGrid[y][x] = 1;
+            }
+        }
+
+        const ctx = canvas.getContext('2d');
+        canvas.width = G * pxSize;
+        canvas.height = G * pxSize;
+
+        // Per-creature blink rhythm, seeded from pubkey so six creatures in a
+        // scene never blink in unison.
+        const seed = b[6] + b[7] * 251 + b[0] * 13;
+        let frame = seed % 180;
+        let blinkCD = 30 + (seed % 90);     // first blink within 0.5-2s of load
+        let blinkDur = 0;
+
+        function draw(){
+            frame++;
+
+            if(blinkDur > 0){
+                blinkDur--;
+            } else {
+                blinkCD--;
+                if(blinkCD <= 0){
+                    blinkDur = 10 + Math.floor(Math.random() * 4);       // 10-13 frames ≈ 170-220ms (actual blink length)
+                    blinkCD  = 100 + Math.floor(Math.random() * 150);    // next blink in 1.7-4.2s
+                }
+            }
+            const g = blinkDur > 0 ? blinkGrid : grid;
+
+            const fy = Math.sin(frame * 0.03) * 0.5;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Soft phosphor halo (static alpha - no breathing)
+            ctx.globalAlpha = 0.15;
+            for(let y=0; y<G; y++) for(let x=0; x<G; x++){
+                const v = g[y][x]; if(!v) continue;
+                ctx.fillStyle = colors[v];
+                ctx.fillRect(x*pxSize - 2, y*pxSize - 2 + fy, pxSize + 4, pxSize + 4);
+            }
+
+            // Main pixel pass
+            ctx.globalAlpha = 1;
+            for(let y=0; y<G; y++) for(let x=0; x<G; x++){
+                const v = g[y][x]; if(!v) continue;
+                ctx.fillStyle = colors[v];
+                ctx.fillRect(x*pxSize, y*pxSize + fy, pxSize, pxSize);
+            }
+
+            requestAnimationFrame(draw);
+        }
+        draw();
+    }
+
+    // Wire up static mascot canvases (nav + footer marks are tiny + isolated;
+    // they don't share visual context with the hero scene, so they keep their
+    // own RAF loops - small cost, simpler positioning.)
+    document.querySelectorAll('#navMark, #footMark').forEach(c => drawOrbee(c));
+
+
+    // ========== HERO SCENE - SINGLE CANVAS ==========
+    // Was 7 separate canvases (orbee + 6 friends) each running their own
+    // requestAnimationFrame; that meant 7 fill pipelines, 7 GPU layers, and a
+    // visible perf cost. Now: one canvas covering the stage, one rAF loop,
+    // one composite pass. Each sprite is built once into a grid + colors,
+    // then drawn at its (left%, top%) position with per-sprite bob/blink/glitch.
+    const FRIENDS = [
+        {pk:'f2b844a7c21e5a33', left:'12%', top:'18%', size:72, bob:0.40},
+        {pk:'8dd5c0ff3a7b14e2', left:'22%', top:'52%', size:60, bob:1.80},
+        {pk:'c9b8ff7ee22045ab', left:'78%', top:'12%', size:68, bob:2.70},
+        {pk:'ff6e40012345cafe', left:'85%', top:'48%', size:54, bob:3.50},
+        {pk:'18ffff00aa11bb22', left:'72%', top:'68%', size:46, bob:0.90},
+        {pk:'76ff03dd884a0055', left:'8%',  top:'72%', size:48, bob:2.20},
+    ];
+
+    function buildCreatureSprite(pubkey){
+        const b = hexBytes(pubkey);
+        const pal = PALETTES[b[0] % PALETTES.length];
+        const cx = 10;
+        const grid = Array.from({length:G}, () => Array(G).fill(0));
+        const cmap = {B:1,D:2,M:3,E:4,H:5,A:6};
+        function stamp(px){for(const [x,y,c] of px){if(x>=0&&x<G&&y>=0&&y<G) grid[y][x] = c===null?0:(cmap[c]||0);}}
+        stamp(BODIES[b[1]%BODIES.length](cx));
+        stamp(EYES[b[2]%EYES.length](cx, 8));
+        stamp(ANT[b[3]%ANT.length](cx));
+        stamp(MOUTHS[b[5]%MOUTHS.length](cx, 11));
+        stamp(LEGS[b[4]%LEGS.length](cx, 14));
+        const colors = {1:pal.body, 2:pal.dark, 3:pal.dim, 4:pal.eye, 5:pal.eyeHi, 6:pal.ant};
+        const blinkGrid = grid.map(r => r.slice());
+        for(let y=7; y<=10; y++) for(let x=0; x<G; x++){
+            if(blinkGrid[y][x] === 4 || blinkGrid[y][x] === 5) blinkGrid[y][x] = 1;
+        }
+        const seed = b[6] + b[7]*251 + b[0]*13;
+        return {grid, blinkGrid, colors, seed};
+    }
+
+    function setupSceneCanvas(){
+        const canvas = document.getElementById('sceneCanvas');
+        const stage = document.getElementById('sceneStage');
+        if(!canvas || !stage) return;
+        const ctx = canvas.getContext('2d');
+
+        // Build sprite + animation state once per friend.
+        const friends = FRIENDS.map(f => {
+            const sprite = buildCreatureSprite(f.pk);
+            return {
+                left: parseFloat(f.left)/100,
+                top: parseFloat(f.top)/100,
+                size: f.size,
+                bobPhase: f.bob,
+                sprite,
+                blinkCD: 30 + (sprite.seed % 90),
+                blinkDur: 0,
+            };
+        });
+
+        // Orbee state - center-bottom anchor.
+        const orbeeCmap = {1:'#d946ef', 3:'#ffffff', 5:'#8b1a8b'};
+        let orbeeBlinkT = Math.random()*120, orbeeIsBlink = false, orbeeBlinkD = 0;
+        let glitchT = Math.floor(Math.random()*400), isGlitch = false, gOff = 0;
+
+        let dpr = window.devicePixelRatio || 1;
+        let stageW = 0, stageH = 0;
+
+        function resize(){
+            dpr = window.devicePixelRatio || 1;
+            const r = stage.getBoundingClientRect();
+            stageW = r.width;
+            stageH = r.height;
+            canvas.width = Math.round(stageW * dpr);
+            canvas.height = Math.round(stageH * dpr);
+        }
+        resize();
+        window.addEventListener('resize', resize);
+
+        let frame = 0;
+        function draw(){
+            frame++;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // ---- Friends ----
+            for(const f of friends){
+                if(f.blinkDur > 0) f.blinkDur--;
+                else { f.blinkCD--; if(f.blinkCD <= 0){ f.blinkDur = 10 + (Math.random()*4|0); f.blinkCD = 100 + (Math.random()*150|0); } }
+                const g = f.blinkDur > 0 ? f.sprite.blinkGrid : f.sprite.grid;
+
+                const pxSize = Math.max(2, Math.floor(f.size / G)) * dpr;
+                // Anchor sprite's top-left at (left%, top%) - matches the
+                // old DOM `position:absolute; left:X%; top:Y%` layout so
+                // the right-side creatures don't shift inward by half a
+                // sprite size.
+                const baseX = f.left * stageW * dpr;
+                const bobY = Math.sin(frame*0.012 + f.bobPhase) * 10 * dpr;
+                const baseY = f.top * stageH * dpr + bobY;
+
+                // Halo
+                ctx.globalAlpha = 0.15;
+                for(let y=0; y<G; y++) for(let x=0; x<G; x++){
+                    const v = g[y][x]; if(!v) continue;
+                    ctx.fillStyle = f.sprite.colors[v];
+                    ctx.fillRect(baseX + x*pxSize - 2*dpr, baseY + y*pxSize - 2*dpr, pxSize + 4*dpr, pxSize + 4*dpr);
+                }
+                // Main
+                ctx.globalAlpha = 1;
+                for(let y=0; y<G; y++) for(let x=0; x<G; x++){
+                    const v = g[y][x]; if(!v) continue;
+                    ctx.fillStyle = f.sprite.colors[v];
+                    ctx.fillRect(baseX + x*pxSize, baseY + y*pxSize, pxSize, pxSize);
+                }
+            }
+
+            // ---- Orbee - center-bottom ----
+            orbeeBlinkT++;
+            if(!orbeeIsBlink && orbeeBlinkT > 100 + Math.random()*130){ orbeeIsBlink = true; orbeeBlinkD = 0; orbeeBlinkT = 0; }
+            if(orbeeIsBlink){ orbeeBlinkD++; if(orbeeBlinkD > 7) orbeeIsBlink = false; }
+            const oSprite = orbeeIsBlink ? ORBEE_BLINK : ORBEE;
+
+            glitchT++;
+            if(!isGlitch && glitchT > 350 + Math.random()*250){
+                isGlitch = true; glitchT = 0;
+                setTimeout(() => { isGlitch = false; gOff = 0; }, 90);
+            }
+            if(isGlitch) gOff = (Math.random() - 0.5) * 8 * dpr;
+
+            // 180px target; 9px per cell at 1× DPR.
+            const orbeeTarget = (stageW < 720 ? 140 : 180) * dpr;
+            const orbeePxSize = Math.max(4, Math.floor(orbeeTarget / G));
+            const orbeeWidth = G * orbeePxSize;
+            const orbeeX = (canvas.width - orbeeWidth) / 2;
+            const orbeeY = canvas.height - 80*dpr - orbeeWidth + Math.sin(frame*0.013) * 4*dpr;
+            const pulse = frame * 0.022;
+            const orbeeFy = Math.sin(frame*0.03) * 0.6 * dpr;
+
+            // Outer glow
+            ctx.globalAlpha = 0.07;
+            for(let y=0; y<G; y++) for(let x=0; x<G; x++){
+                const v = oSprite[y][x]; if(!v) continue;
+                const c = orbeeCmap[v]; if(!c) continue;
+                ctx.fillStyle = c;
+                ctx.fillRect(orbeeX + x*orbeePxSize - 1.5*dpr, orbeeY + y*orbeePxSize + orbeeFy - 1.5*dpr, orbeePxSize + 3*dpr, orbeePxSize + 3*dpr);
+            }
+
+            // Main + chromatic aberration on eyes (palette 3)
+            for(let y=0; y<G; y++) for(let x=0; x<G; x++){
+                const v = oSprite[y][x]; if(!v) continue;
+                const c = orbeeCmap[v]; if(!c) continue;
+                let gx = orbeeX + x*orbeePxSize;
+                if(isGlitch && y % 3 === 0) gx += gOff;
+                const gy = orbeeY + y*orbeePxSize + orbeeFy;
+                ctx.globalAlpha = 0.82 + Math.sin(pulse + x*0.25 + y*0.2) * 0.18;
+                ctx.fillStyle = c;
+                ctx.fillRect(gx, gy, orbeePxSize, orbeePxSize);
+                if(v === 3){
+                    ctx.globalAlpha = 0.13;
+                    ctx.fillStyle = '#ff3c8e';
+                    ctx.fillRect(gx - 1.5*dpr, gy, 1.5*dpr, orbeePxSize);
+                    ctx.fillStyle = '#4444ff';
+                    ctx.fillRect(gx + orbeePxSize, gy, 1.5*dpr, orbeePxSize);
+                }
+            }
+            ctx.globalAlpha = 1;
+
+            requestAnimationFrame(draw);
+        }
+        draw();
+
+        // Inject sparks (still DOM - pure CSS animations, no JS cost).
+        const SPARKS = [
+            {l:'18%', t:'8%', d:'0s'},   {l:'45%', t:'4%', d:'-1.2s'},
+            {l:'62%', t:'8%', d:'-2.1s'}, {l:'32%', t:'80%', d:'-0.6s'},
+            {l:'58%', t:'78%', d:'-1.8s'},{l:'90%', t:'30%', d:'-2.4s'},
+            {l:'5%',  t:'40%', d:'-1.5s'},{l:'40%', t:'32%', d:'-0.8s'},
+        ];
+        SPARKS.forEach(s => {
+            const d = document.createElement('div');
+            d.className = 'spark';
+            d.style.left = s.l;
+            d.style.top = s.t;
+            d.style.setProperty('--d', s.d);
+            stage.appendChild(d);
+        });
+    }
+    setupSceneCanvas();
+
+
+    // ========== ANIMATED CHAT ==========
+
+    const CAST = {
+        alice:   {pubkey:'f2b844a7c21e5a33', handle:'alice@bitcoin', display:'Alice', color:'#ffa844', verified:true},
+        noah:    {pubkey:'8dd5c0ff3a7b14e2', handle:'noah@orbee', display:'Noah', color:'#8dd5ff', verified:true},
+        wanderer:{pubkey:'c9b8ff7ee22045ab', handle:'npub1s90jy…3ar4', display:'', color:'#7a7880', verified:false, npub:true},
+        you:     {pubkey:'ff6e40012345cafe', handle:'you@orbee', display:'You', color:'#ffb8b0', verified:true},
+    };
+
+    const SCRIPT = [
+        {type:'msg', who:'alice', text:"morning gang ☀️", delay:800},
+        {type:'typing', who:'noah', delay:1200},
+        {type:'msg', who:'noah', text:"yo! does orbee use nostr?", delay:1400, replaceTyping:true},
+        {type:'react', target:1, emoji:'☕', reactors:['alice','wanderer'], delay:1000},
+        {type:'msg', who:'wanderer', text:"hi all, just found the group - hope it's ok I stop in 👋", delay:1700},
+        {type:'typing', who:'you', delay:1300},
+        {type:'msg', who:'you', text:"everyone's welcome here, grab a seat", delay:1500, replaceTyping:true},
+        {type:'msg', who:'alice', text:"that's the whole point 💚", delay:1600},
+        {type:'react', target:4, emoji:'💚', reactors:['noah','wanderer','you'], delay:1000},
+    ];
+
+    const demoChat = document.getElementById('demoChat');
+    let scriptIdx = 0;
+    let messageNodes = [];
+
+    function createMessageNode(step){
+        const user = CAST[step.who];
+        const node = document.createElement('div');
+        node.className = 'msg';
+
+        const av = document.createElement('div');
+        av.className = 'msg-avatar';
+        const avCanvas = document.createElement('canvas');
+        avCanvas.width = 100; avCanvas.height = 100;
+        av.appendChild(avCanvas);
+        drawCreature(avCanvas, user.pubkey);
+        node.appendChild(av);
+
+        const body = document.createElement('div');
+        body.className = 'msg-body';
+
+        const meta = document.createElement('div');
+        meta.className = 'msg-meta';
+        meta.style.color = user.color;
+        if(user.npub){
+            const match = user.handle.match(/^(npub1)(.*)$/);
+            if(match){
+                meta.innerHTML = `<span class="npub-prefix">${match[1]}</span><span class="handle">${match[2]}</span>`;
+            } else {
+                meta.innerHTML = `<span class="handle">${user.handle}</span>`;
+            }
+        } else {
+            meta.innerHTML = `<span class="vdot"></span><span class="handle">${user.handle}</span><span class="display">${user.display}</span>`;
+        }
+        body.appendChild(meta);
+
+        if(step.type === 'typing'){
+            const typing = document.createElement('div');
+            typing.className = 'typing';
+            typing.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+            body.appendChild(typing);
+            node.dataset.typing = 'true';
+        } else {
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            const tailCol = user.verified ? user.color : '#242428';
+            bubble.style.setProperty('--tail-col', tailCol);
+            const textSpan = document.createElement('span');
+            textSpan.className = 'bubble-text';
+            textSpan.textContent = step.text;
+            bubble.appendChild(textSpan);
+            body.appendChild(bubble);
+        }
+
+        node.appendChild(body);
+        return node;
+    }
+
+    function addReactionToMessage(messageNode, step){
+        const bubble = messageNode.querySelector('.bubble');
+        if(!bubble) return;
+        bubble.classList.add('has-reactions');
+        let reactions = bubble.querySelector('.reactions');
+        if(!reactions){
+            reactions = document.createElement('div');
+            reactions.className = 'reactions';
+            bubble.appendChild(reactions);
+        }
+        const pill = document.createElement('div');
+        pill.className = 'reaction';
+        let chipsHtml = '';
+        for(const r of step.reactors){
+            chipsHtml += `<span class="reactor-chip"><canvas data-pk="${CAST[r].pubkey}" width="100" height="100"></canvas></span>`;
+        }
+        pill.innerHTML = `<span class="reaction-emoji">${step.emoji}</span><span class="reaction-stack">${chipsHtml}</span>`;
+        reactions.appendChild(pill);
+        pill.querySelectorAll('canvas[data-pk]').forEach(c => {
+            drawCreature(c, c.dataset.pk);
+        });
+    }
+
+    function sleep(ms){return new Promise(r => setTimeout(r, ms));}
+
+    async function runScriptStep(){
+        if(scriptIdx >= SCRIPT.length){
+            setTimeout(() => {
+                demoChat.style.opacity = '0';
+                demoChat.style.transition = 'opacity 0.6s';
+                setTimeout(() => {
+                    demoChat.innerHTML = '';
+                    messageNodes = [];
+                    scriptIdx = 0;
+                    demoChat.style.opacity = '1';
+                    runScriptStep();
+                }, 700);
+            }, 3000);
+            return;
+        }
+
+        const step = SCRIPT[scriptIdx];
+        await sleep(step.delay);
+
+        if(step.type === 'react'){
+            const target = messageNodes[step.target];
+            if(target) addReactionToMessage(target, step);
+        } else if(step.replaceTyping){
+            const lastTyping = [...demoChat.querySelectorAll('.msg[data-typing]')].pop();
+            if(lastTyping){
+                const newNode = createMessageNode(step);
+                const idx = messageNodes.indexOf(lastTyping);
+                lastTyping.replaceWith(newNode);
+                if(idx >= 0) messageNodes[idx] = newNode;
+                else messageNodes.push(newNode);
+            } else {
+                const node = createMessageNode(step);
+                demoChat.appendChild(node);
+                messageNodes.push(node);
+            }
+        } else {
+            const node = createMessageNode(step);
+            demoChat.appendChild(node);
+            messageNodes.push(node);
+        }
+
+        while(demoChat.children.length > 6){
+            const first = demoChat.firstElementChild;
+            const idx = messageNodes.indexOf(first);
+            if(idx >= 0) messageNodes.splice(idx, 1);
+            first.remove();
+        }
+
+        scriptIdx++;
+        runScriptStep();
+    }
+
+    runScriptStep();
+</script>
+
+</body>
+</html>

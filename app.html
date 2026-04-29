@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#151513" />
+    <title>Orbee - your name, your people, your rules</title>
+    <meta name="description" content="A group chat app where your name is yours for life, the server is whoever you want, and nobody can lock you out." />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Same OG / Twitter card as the marketing landing - shared
+         /og-image.png so app deep links unfurl identically. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Orbee" />
+    <meta property="og:title" content="Orbee - your name, your people, your rules" />
+    <meta property="og:description" content="A group chat app where your name is yours for life, the server is whoever you want, and nobody can lock you out." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Orbee - an open world for group chat" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Orbee - your name, your people, your rules" />
+    <meta name="twitter:description" content="A group chat app where your name is yours for life, the server is whoever you want, and nobody can lock you out." />
+    <meta name="twitter:image" content="/og-image.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Fragment+Mono&family=IM+Fell+English+SC&display=swap"
+    />
+    <style>
+      /* Critical first-paint styles. Vite dev mode loads CSS modules via
+         JS, which means the bundled stylesheet arrives a few ms after
+         the initial DOM. Without these inline rules the page paints
+         white briefly AND the scroll container has 0 height - and the
+         virtualizer reads 0 height as "nothing visible" and renders
+         nothing. So we lock down the dark chrome AND the layout chain
+         so .messages has a real height from frame zero. */
+      html, body, #app { background: #151513; color: #e8e9eb; }
+      html, body { margin: 0; height: 100%; min-height: 100vh; }
+      #app { height: 100vh; }
+      .app-grid {
+        display: grid;
+        grid-template-columns: 280px 1fr 360px;
+        height: 100vh;
+      }
+      .main { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
+      .messages { flex: 1; min-height: 0; overflow-y: auto; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/src/index.tsx" type="module"></script>
+  </body>
+</html>

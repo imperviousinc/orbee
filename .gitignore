@@ -1,0 +1,26 @@
+node_modules/
+dist/
+dist-app/
+dist-landing/
+
+# Wrangler local state (miniflare cache, KV emulation, log shards).
+.wrangler/
+# Wrangler local secrets - committed env vars go in wrangler.jsonc.
+.dev.vars
+
+# Environment + secrets
+.env
+.env.local
+.env.*.local
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*

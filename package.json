@@ -1,0 +1,32 @@
+{
+  "name": "orbee",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "preview": "vite preview",
+    "build:landing": "node scripts/build-landing.mjs",
+    "build:app": "vite build && node scripts/post-app-build.mjs",
+    "build": "npm run build:landing && npm run build:app",
+    "deploy:landing": "wrangler deploy --env landing",
+    "deploy:app": "wrangler deploy --env app",
+    "deploy": "npm run build && npm run deploy:landing && npm run deploy:app"
+  },
+  "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@spacesprotocol/fabric-web": "^0.2.3",
+    "@tanstack/solid-virtual": "^3.13.23",
+    "nostr-tools": "^2.23.3",
+    "solid-js": "^1.9.12"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.8",
+    "vite-plugin-solid": "^2.11.12",
+    "wrangler": "^4.0.0",
+    "ws": "^8.20.0"
+  }
+}
