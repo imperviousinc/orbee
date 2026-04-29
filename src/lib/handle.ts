@@ -65,3 +65,11 @@ export function isHandleSkipped(pubkey: string): boolean {
 export function setHandleSkipped(pubkey: string): void {
   localStorage.setItem(SKIPPED_PREFIX + pubkey, "1");
 }
+
+const HAS_HANDLE_PREFIX = "orbee-pubkey-handle:";
+export function pubkeyHasVerifiedHandle(pubkey: string): boolean {
+  return localStorage.getItem(HAS_HANDLE_PREFIX + pubkey) === "1";
+}
+export function markPubkeyVerifiedHandle(pubkey: string): void {
+  localStorage.setItem(HAS_HANDLE_PREFIX + pubkey, "1");
+}

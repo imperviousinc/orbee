@@ -235,8 +235,9 @@ export function hydrateStationMetadataFromCache(relayUrl: string) {
   }
 }
 
-// Per (station, kind) timestamp of the latest applied event - skips redundant
-// live-replays that would otherwise trigger spurious re-renders after cache hydration.
+// Some NIP-29 relays reuse created_at on republish; dedup by event id
+// instead so new content lands even when the timestamp doesn't move.
+const lastAppliedMetaId = new Map<string, string>();
 const lastAppliedMetaTs = new Map<string, number>();
 
 function handleMetadataEvent(
@@ -250,10 +251,11 @@ function handleMetadataEvent(
   ensureStation(ref);
   const k = stationKey(ref);
 
-  const tsKey = `${k}::${event.kind}`;
-  const lastTs = lastAppliedMetaTs.get(tsKey) || 0;
-  if (event.created_at <= lastTs) return;
-  lastAppliedMetaTs.set(tsKey, event.created_at);
+  const dedupKey = `${k}::${event.kind}`;
+  if (lastAppliedMetaId.get(dedupKey) === event.id) return;
+  if (event.created_at < (lastAppliedMetaTs.get(dedupKey) || 0)) return;
+  lastAppliedMetaId.set(dedupKey, event.id);
+  lastAppliedMetaTs.set(dedupKey, event.created_at);
 
   if (persist) {
     localMeta[`${k}::${event.kind}`] = event;

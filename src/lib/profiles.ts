@@ -193,8 +193,9 @@ function flushBatch() {
   );
 }
 
+const STALE_MS = 60 * 1000;
+
 export function requestProfiles(pubkeys: string[]) {
-  const STALE_MS = 4 * 60 * 60 * 1000;
   const now = Date.now();
 
   for (const pk of pubkeys) {
@@ -209,17 +210,20 @@ export function requestProfiles(pubkeys: string[]) {
 }
 
 export function requestProfilesPriority(pubkeys: string[]) {
-  const missing = pubkeys.filter((pk) => !profiles[pk]);
-  if (missing.length === 0) return;
+  const now = Date.now();
+  const targets = pubkeys.filter((pk) => {
+    const cached = profiles[pk];
+    return !cached || now - cached.fetchedAt >= STALE_MS;
+  });
+  if (targets.length === 0) return;
 
   relay.subscribe(
-    { kinds: [0], authors: missing },
+    { kinds: [0], authors: targets },
     (event) => processKind0(event.pubkey, event.content),
   );
 }
 
 export function refreshStaleProfiles() {
-  const STALE_MS = 4 * 60 * 60 * 1000;
   const now = Date.now();
   const stale: string[] = [];
 

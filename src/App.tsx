@@ -1,7 +1,13 @@
 import { createSignal, Show, Switch, Match, For, onCleanup, onMount, createEffect } from "solid-js";
 import { loadAuth, clearAuth, hexToBytes, type NostrEvent, type StoredAuth } from "./lib/keys";
 import { wipeAccountData } from "./lib/cacheReset";
-import { loadClaimedHandle, isHandleSkipped, isClaimComplete } from "./lib/handle";
+import {
+  loadClaimedHandle,
+  isHandleSkipped,
+  isClaimComplete,
+  pubkeyHasVerifiedHandle,
+  markPubkeyVerifiedHandle,
+} from "./lib/handle";
 import ClaimHandle from "./components/ClaimHandle";
 import { LocalSigner, Nip07Signer, Nip46Signer } from "./lib/signer";
 import type { AuthState } from "./lib/auth";
@@ -52,7 +58,7 @@ import BackupBanner from "./components/BackupBanner";
 import BackupView from "./components/BackupView";
 import { hasUnbackedKey } from "./lib/backup";
 import { viewingProfile, setViewingProfile } from "./lib/profileView";
-import { identityParts, requestProfilesPriority } from "./lib/profiles";
+import { profiles, identityParts, requestProfilesPriority } from "./lib/profiles";
 import RequestAccessBanner from "./components/RequestAccessBanner";
 import DialogHost from "./components/DialogHost";
 import { IconDotsThreeVertical, IconX } from "./components/icons";
@@ -79,6 +85,8 @@ export default function App() {
   if (stored?.method === "nip07") {
     Nip07Signer.init()
       .then((signer) => {
+        // Different account selected in the extension - that's a real
+        // identity change, sign out for safety.
         if (signer.pubkey !== stored.pubkey) {
           forceSignOut();
           return;
@@ -88,8 +96,10 @@ export default function App() {
         setGlobalAuthSigner(signer);
         setAuth(refreshed);
       })
-      .catch(() => {
-        forceSignOut();
+      .catch((e) => {
+        // Transient init failure (extension slow/locked, page raced
+        // injection). Keep the stub signer; user retries via UI.
+        console.warn("[auth] nip07 init failed:", e);
       });
   }
 
@@ -110,8 +120,8 @@ export default function App() {
         setGlobalAuthSigner(signer);
         setAuth(refreshed);
       })
-      .catch(() => {
-        forceSignOut();
+      .catch((e) => {
+        console.warn("[auth] bunker reconnect failed:", e);
       });
   }
 
@@ -123,11 +133,26 @@ export default function App() {
   const [handleTick, setHandleTick] = createSignal(0);
   const needsHandleClaim = (pubkey: string) => {
     handleTick(); // subscribe
+    // Their kind:0 already carries a handle (published from this device,
+    // another client, or a previous install) - no picker needed.
+    if (pubkeyHasVerifiedHandle(pubkey)) return false;
+    if (profiles[pubkey]?.handle) return false;
     if (isClaimComplete()) return false;
     if (loadClaimedHandle()) return true;
     return !isHandleSkipped(pubkey);
   };
   const bumpHandleTick = () => setHandleTick((n) => n + 1);
+
+  // Once the signed-in user's kind:0 arrives carrying a handle, cache
+  // that fact locally so future re-logins skip the relay round-trip.
+  createEffect(() => {
+    const a = auth();
+    if (!a) return;
+    const handle = profiles[a.signer.pubkey]?.handle;
+    if (handle && !pubkeyHasVerifiedHandle(a.signer.pubkey)) {
+      markPubkeyVerifiedHandle(a.signer.pubkey);
+    }
+  });
 
   return (
     <>

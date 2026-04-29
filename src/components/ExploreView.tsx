@@ -14,6 +14,11 @@ export interface FeaturedStation {
  *  StationPreview's "Browse public stations" view. Append entries here. */
 export const FEATURED: FeaturedStation[] = [
   {
+    ref: { id: "orbee", relay: "wss://groups.0xchat.com" },
+    name: "Orbee",
+    blurb: "It's orbee's community group!",
+  },
+  {
     ref: { id: "NkeVhXuWHGKKJCpn", relay: "wss://groups.0xchat.com" },
     name: "Grimoire",
     blurb: "Conversations around grimoire, a nostr client for magicians.",

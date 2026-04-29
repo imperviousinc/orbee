@@ -280,6 +280,11 @@ a:hover {
   text-underline-offset: 2px;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   font-family: var(--font-body);
   font-size: var(--text-ui);
@@ -5820,7 +5825,9 @@ body {
   font-family: var(--font-body);
   font-size: var(--text-sm);
   color: var(--text-primary);
-  z-index: 20;
+  /* Sits below sliding sidebars (z-index 30) on mobile. */
+  position: relative;
+  z-index: 1;
   animation: signin-view-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 

@@ -39,10 +39,21 @@ console.warn = (...a: unknown[]) => { _origWarn(...a); broadcastLog("warn", a); 
 console.error = (...a: unknown[]) => { _origErr(...a); broadcastLog("error", a); };
 
 // Dedicated kind:0 + 10002 indexer relays. SimplePool dedupes across them.
-const PROFILE_RELAYS = [
+// Read kind:0 from indexer relays - they aggregate profiles across the
+// network so we don't need to follow per-author NIP-65 outboxes.
+const PROFILE_READ_RELAYS = [
   "wss://purplepag.es",
   "wss://user.kindpag.es",
-  "wss://relay.nos.social",
+  "wss://relay.primal.net",
+];
+
+// Write kind:0 to general relays that accept writes from any pubkey.
+// Indexers are read-only for arbitrary clients; publishing only to them
+// silently no-ops propagation.
+const PROFILE_WRITE_RELAYS = [
+  "wss://relay.damus.io",
+  "wss://relay.primal.net",
+  "wss://nos.lol",
 ];
 
 type AuthPending = {
@@ -87,7 +98,9 @@ const profilePool = makePool();
 const groupPools = new Map<string, SimplePool>();
 
 function getPool(url: string): SimplePool {
-  if (PROFILE_RELAYS.includes(url)) return profilePool;
+  if (PROFILE_READ_RELAYS.includes(url) || PROFILE_WRITE_RELAYS.includes(url)) {
+    return profilePool;
+  }
   let p = groupPools.get(url);
   if (!p) {
     p = makePool();
@@ -123,9 +136,8 @@ function doSubscribe(port: MessagePort, subId: string, url: string, filter: Filt
   subs.set(subId, { close: () => sub.close(), port });
 }
 
-/** Subscribe across all PROFILE_RELAYS; SimplePool dedupes events and aggregates EOSE. */
 function doProfileSubscribe(port: MessagePort, subId: string, filter: Filter) {
-  const sub = profilePool.subscribeMany(PROFILE_RELAYS, filter, {
+  const sub = profilePool.subscribeMany(PROFILE_READ_RELAYS, filter, {
     onevent: (event: Event) => {
       port.postMessage({ type: "event", sub: subId, event });
     },
@@ -173,10 +185,10 @@ async function doPublish(port: MessagePort, url: string, event: Event) {
   }
 }
 
-/** Publish to all PROFILE_RELAYS; ok if any accepts. */
+/** Publish kind:0 to write-friendly general relays; ok if any accepts. */
 async function doProfilePublish(port: MessagePort, event: Event) {
   try {
-    const promises = profilePool.publish(PROFILE_RELAYS, event);
+    const promises = profilePool.publish(PROFILE_WRITE_RELAYS, event);
     const settled = await Promise.allSettled(promises);
     const accepted = settled.find((s) => s.status === "fulfilled");
     if (accepted && accepted.status === "fulfilled") {
