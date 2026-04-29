@@ -174,74 +174,111 @@ function processKind0(pubkey: string, content: string) {
   } catch {}
 }
 
+// 30-min safety re-fetch window. The live sub below pushes updates
+// as relays receive them; this catches relays that don't actually
+// honor live subscriptions.
+const STALE_MS = 30 * 60 * 1000;
+// One-shot batch debounce.
+const BATCH_DELAY = 50;
+// How many recent authors stay in the live sub. Beyond this, profiles
+// fall back to staleness-based one-shot refetches.
+const MAX_LIVE_AUTHORS = 50;
+// Coalesce live-sub recreates so a burst of touches makes one new sub.
+const LIVE_REFRESH_DEBOUNCE = 300;
+
 const pendingPubkeys = new Set<string>();
 let batchTimer: number | null = null;
-const BATCH_DELAY = 50;
 
 function flushBatch() {
   batchTimer = null;
   if (pendingPubkeys.size === 0) return;
-
   const authors = [...pendingPubkeys];
   pendingPubkeys.clear();
-
-  relay.subscribe(
+  let subId: string | null = null;
+  subId = relay.subscribe(
     { kinds: [0], authors },
-    (event) => {
-      processKind0(event.pubkey, event.content);
-    },
+    (event) => processKind0(event.pubkey, event.content),
+    () => { if (subId) relay.unsubscribe(subId); },
   );
 }
 
-const STALE_MS = 60 * 1000;
+// Insertion-ordered Map = LRU. Most-recently-touched at the back.
+const liveAuthors = new Map<string, true>();
+let liveSubId: string | null = null;
+let liveRefreshTimer: number | null = null;
+// Tracks the author set last sent to the relay so we skip a refresh
+// when the LRU promotion didn't actually change membership.
+let liveSubAuthors: string[] = [];
 
-export function requestProfiles(pubkeys: string[]) {
-  const now = Date.now();
-
-  for (const pk of pubkeys) {
-    const cached = profiles[pk];
-    if (cached && now - cached.fetchedAt < STALE_MS) continue;
-    pendingPubkeys.add(pk);
+function touchLiveAuthor(pk: string): boolean {
+  const had = liveAuthors.has(pk);
+  liveAuthors.delete(pk);
+  liveAuthors.set(pk, true);
+  while (liveAuthors.size > MAX_LIVE_AUTHORS) {
+    const oldest = liveAuthors.keys().next().value;
+    if (!oldest) break;
+    liveAuthors.delete(oldest);
   }
-
-  if (pendingPubkeys.size > 0 && !batchTimer) {
-    batchTimer = window.setTimeout(flushBatch, BATCH_DELAY);
-  }
+  return !had;
 }
 
-export function requestProfilesPriority(pubkeys: string[]) {
-  const now = Date.now();
-  const targets = pubkeys.filter((pk) => {
-    const cached = profiles[pk];
-    return !cached || now - cached.fetchedAt >= STALE_MS;
-  });
-  if (targets.length === 0) return;
+function scheduleLiveRefresh() {
+  if (liveRefreshTimer != null) return;
+  liveRefreshTimer = window.setTimeout(() => {
+    liveRefreshTimer = null;
+    refreshLiveSub();
+  }, LIVE_REFRESH_DEBOUNCE);
+}
 
-  relay.subscribe(
-    { kinds: [0], authors: targets },
+function refreshLiveSub() {
+  const next = [...liveAuthors.keys()];
+  // Skip if the membership matches the open sub.
+  if (
+    liveSubId &&
+    next.length === liveSubAuthors.length &&
+    next.every((pk, i) => pk === liveSubAuthors[i])
+  ) {
+    return;
+  }
+  if (liveSubId) relay.unsubscribe(liveSubId);
+  liveSubId = null;
+  if (next.length === 0) {
+    liveSubAuthors = [];
+    return;
+  }
+  liveSubAuthors = next;
+  liveSubId = relay.subscribe(
+    { kinds: [0], authors: next },
     (event) => processKind0(event.pubkey, event.content),
   );
 }
 
-export function refreshStaleProfiles() {
+export function requestProfiles(pubkeys: string[]) {
   const now = Date.now();
-  const stale: string[] = [];
-
-  for (const [pubkey, profile] of Object.entries(profiles)) {
-    if (now - profile.fetchedAt > STALE_MS) {
-      stale.push(pubkey);
-    }
+  let liveDirty = false;
+  for (const pk of pubkeys) {
+    const cached = profiles[pk];
+    const isStale = !cached || now - cached.fetchedAt >= STALE_MS;
+    if (isStale) pendingPubkeys.add(pk);
+    if (touchLiveAuthor(pk)) liveDirty = true;
   }
-
-  if (stale.length > 0) {
-    for (let i = 0; i < stale.length; i += 50) {
-      const chunk = stale.slice(i, i + 50);
-      relay.subscribe(
-        { kinds: [0], authors: chunk },
-        (event) => processKind0(event.pubkey, event.content),
-      );
-    }
+  if (pendingPubkeys.size > 0 && !batchTimer) {
+    batchTimer = window.setTimeout(flushBatch, BATCH_DELAY);
   }
+  if (liveDirty) scheduleLiveRefresh();
+}
+
+export function requestProfilesPriority(pubkeys: string[]) {
+  // Priority is just immediate inclusion in the live sub + one-shot
+  // fetch. Same path as requestProfiles since the live sub already
+  // batches and the one-shot honors staleness.
+  requestProfiles(pubkeys);
+}
+
+export function refreshStaleProfiles() {
+  // Handled implicitly: the live sub pushes updates, and STALE_MS in
+  // requestProfiles triggers re-fetch when the cache is older than
+  // the safety window. Kept as a no-op for callers.
 }
 
 // Display-name spoof guard. Reject anything that could pose as an identity
