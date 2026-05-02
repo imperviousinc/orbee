@@ -15,7 +15,7 @@ import {
   addRecent,
   EmojiPicker,
   playReaction,
-} from "../lib/notoReactions.js";
+} from "../lib/emojiPicker.js";
 import MemberActions from "./MemberActions";
 import {
   IconHandsClapping,

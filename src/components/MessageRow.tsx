@@ -168,7 +168,7 @@ function ReactionChip(props: {
       data-reactors={titleText()}
       onClick={() => addReaction(props.eventId, props.targetPubkey, props.emoji, getSigner())}
     >
-      {/* `.native` is the hook notoReactions' playReaction() targets. */}
+      {/* `.native` is the hook emojiPicker's playReaction() targets. */}
       <span class="native">{props.emoji}</span>
       <Show
         when={showAvatars()}

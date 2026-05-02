@@ -7665,7 +7665,7 @@ body {
 }
 
 /* Shelf emoji - native glyph at rest, particle burst on click via
-   playReaction (notoReactions.js). overflow:visible so the particle
+   playReaction (emojiPicker.js). overflow:visible so the particle
    layer can spill outside the small button bounds. */
 .shelf-emoji {
   position: relative;

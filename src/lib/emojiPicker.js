@@ -1,22 +1,36 @@
 /*
- * noto-reactions - emoji reactions + picker, particles-only.
+ * Emoji picker + reaction-burst animator. Particles-only (Lottie was dropped).
  *
- *   import { EmojiPicker, playReaction } from './notoReactions.js';
+ *   import { EmojiPicker, playReaction } from './emojiPicker.js';
  *   const picker = new EmojiPicker({ onPick: ({code, emoji}) => {...} });
  *   picker.open(anchorEl);
  *   await playReaction(targetEl, { code: '1f525' });
  */
 
-const API = 'https://googlefonts.github.io/noto-emoji-animation/data/api.json';
+import CATALOG_DATA from './emojiCatalog.json';
 
-let _catalogPromise;
+// Catalog was seeded from https://googlefonts.github.io/noto-emoji-animation/data/api.json
+// (trimmed to {c, g, t} per icon, pre-sorted by popularity desc) and is now
+// hand-maintained alongside any custom reactions we add. Bundling it avoids
+// an external single-point-of-failure on every session.
+const CAT_NAMES = [
+  'Smileys and emotions', 'People', 'Animals and nature', 'Food and drink',
+  'Travel and places', 'Activities and events', 'Objects', 'Symbols', 'Flags',
+];
+
+let _catalog = null;
 export function getCatalog() {
-  if (_catalogPromise) return _catalogPromise;
-  _catalogPromise = fetch(API).then(r => r.json()).then(d => d.icons);
-  return _catalogPromise;
+  if (!_catalog) {
+    _catalog = CATALOG_DATA.map((i) => ({
+      codepoint: i.c,
+      categories: [CAT_NAMES[i.g]],
+      tags: i.t,
+    }));
+  }
+  return Promise.resolve(_catalog);
 }
 
-/** Convert a Noto codepoint string (e.g. "1f468_200d_1f4bb") to the emoji glyph. */
+/** Convert a codepoint string (e.g. "1f468_200d_1f4bb") to the emoji glyph. */
 export function codepointToEmoji(cp) {
   return cp.split('_').map(h => String.fromCodePoint(parseInt(h, 16))).join('');
 }
@@ -232,13 +246,15 @@ export class EmojiPicker {
   }
 
   _group(catalog) {
+    // Catalog is pre-sorted by popularity (descending) in the bundled JSON,
+    // so per-category insertion order is the popularity order we want - no
+    // explicit sort needed.
     const byCat = new Map();
     for (const cat of CAT_ORDER) byCat.set(cat, []);
     for (const icon of catalog) {
       const cat = CAT_ORDER.includes(icon.categories[0]) ? icon.categories[0] : 'Symbols';
       byCat.get(cat).push(icon);
     }
-    for (const arr of byCat.values()) arr.sort((a, b) => b.popularity - a.popularity);
     return byCat;
   }
 

@@ -1,5 +1,5 @@
 import { createSignal, createMemo, createEffect, onCleanup, For, Show } from "solid-js";
-import { EmojiPicker } from "../lib/notoReactions.js";
+import { EmojiPicker } from "../lib/emojiPicker.js";
 import type { NostrEvent } from "../lib/keys";
 import type { Signer } from "../lib/signer";
 import { displayName, hasHandle, avatarSrc, markAvatarBroken, profiles } from "../lib/profiles";

@@ -1,4 +1,4 @@
-// Ambient types for notoReactions.js - a hand-written library that stays
+// Ambient types for emojiPicker.js - a hand-written library that stays
 // as plain JS. Declaration mirrors the runtime surface used by Orbee.
 // Particles-only since Lottie was dropped: no renderLottie, no
 // getLottieData, no prefetchTop.
