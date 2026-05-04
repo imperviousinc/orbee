@@ -4,7 +4,6 @@ import nos2xLogo from "../assets/signers/nos2x.png";
 import amberLogo from "../assets/signers/amber.png";
 import {
   decodeNsec,
-  keypairFromPrivkey,
   saveLocalAuth,
   saveNip07Auth,
   saveBunkerAuth,
@@ -12,12 +11,9 @@ import {
   bytesToHex,
 } from "../lib/keys";
 import { randomBytes } from "../lib/crypto";
-import {
-  LocalSigner,
-  Nip07Signer,
-  Nip46Signer,
-  hasNip07,
-} from "../lib/signer";
+import { Signer, hasNip07 } from "../lib/signer";
+import { publishProfile } from "../lib/profiles";
+import { profileRelay } from "../lib/nostr";
 import type { AuthState } from "../lib/auth";
 
 import SpacesLogo from "./SpacesLogo";
@@ -26,9 +22,12 @@ import { typewriter } from "../lib/typewriter.js";
 import { preloadFabric } from "../lib/fabric";
 import QRCode from "./QRCode";
 
+// Relays the BunkerSigner listens on for the signer's connect response
+// after the user scans the nostrconnect:// QR. relay.damus.io was dropped
+// because the WS dial fails (it filters kind 24133).
 const NOSTRCONNECT_RELAYS = [
   "wss://relay.nsec.app",
-  "wss://relay.damus.io",
+  "wss://relay.primal.net",
 ];
 
 const EXTENSION_SIGNERS = [
@@ -68,6 +67,12 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [mode, setMode] = createSignal<Mode>("entry");
+  // Display name a brand-new user types in the "I'm new here" view; gets
+  // published as kind:0 display_name right after fastMint so the rest of
+  // the app has something better than a truncated npub to show. Only
+  // collected for fresh-key minting - existing-key paths (nsec import,
+  // NIP-07, bunker) already have a profile.
+  const [signupName, setSignupName] = createSignal("");
   let nsecInputEl: HTMLInputElement | undefined;
 
   // Delay focus until after view crossfade (220ms) settles to avoid focus-ring flicker.
@@ -123,21 +128,26 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
 
   onCleanup(() => bunkerAbort?.abort());
 
-  function trySignIn(input: string): boolean {
+  async function trySignIn(input: string): Promise<boolean> {
     const privkey = decodeNsec(input);
     if (!privkey) {
       setError("That doesn't look like an nsec. Your secret key starts with nsec1.");
       return false;
     }
-    const kp = keypairFromPrivkey(privkey);
     saveLocalAuth("", privkey);
-    props.onAuth({ handle: "", signer: new LocalSigner(kp) });
+    const signer = await Signer.connect({ type: "local", privkey });
+    props.onAuth({ handle: "", signer });
     return true;
   }
 
-  function submit() {
+  async function submit() {
     setError("");
-    trySignIn(nsec().trim());
+    setBusy(true);
+    try {
+      await trySignIn(nsec().trim());
+    } finally {
+      setBusy(false);
+    }
   }
 
   // NIP-07 browser extension sign-in.
@@ -145,8 +155,11 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
     setError("");
     setBusy(true);
     try {
-      const signer = await Nip07Signer.init();
-      saveNip07Auth(signer.pubkey);
+      const wn = (window as any).nostr;
+      if (!wn) throw new Error("NIP-07 extension not found");
+      const pubkey = await wn.getPublicKey();
+      saveNip07Auth(pubkey);
+      const signer = await Signer.connect({ type: "nip07", pubkey });
       props.onAuth({ handle: "", signer });
     } catch (e: any) {
       setError(e?.message || "Extension sign-in failed.");
@@ -155,17 +168,33 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
     }
   }
 
-  // Mint a fresh key and flag backup-pending so the nag banner appears until user saves nsec.
-  function fastMint() {
+  // Mint a fresh key, publish the user's display name as kind:0, and
+  // flag backup-pending so the nag banner appears until they save the nsec.
+  async function fastMint() {
     setError("");
+    setBusy(true);
     try {
       const privkey = randomBytes(32);
-      const kp = keypairFromPrivkey(privkey);
       saveLocalAuth("", privkey);
-      setBackupPending(kp.pubkey);
-      props.onAuth({ handle: "", signer: new LocalSigner(kp) });
+      const signer = await Signer.connect({ type: "local", privkey });
+      setBackupPending(signer.pubkey);
+      // Publish kind:0 with the chosen display name before transitioning
+      // to the next step. Best-effort: if the profile relay rejects or
+      // the user typed nothing, we just proceed - their handle claim
+      // and any later edits via ProfileEditor will publish kind:0
+      // correctly. No await blocking the UI on a relay round-trip.
+      const name = signupName().trim();
+      if (name) {
+        profileRelay.connect();
+        publishProfile(signer, { display_name: name }).catch((e) =>
+          console.warn("[signup] display_name publish failed:", e),
+        );
+      }
+      props.onAuth({ handle: "", signer });
     } catch (e: any) {
       setError(e?.message || "Couldn't mint a fresh key.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -185,22 +214,29 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
 
     qrStarted = true;
     bunkerAbort = new AbortController();
-    try {
-      const { uri, ready } = Nip46Signer.beginNostrConnect({
+    // Use the live origin so localhost dev and production each surface
+    // their own URL/icon in the signer's approval prompt. icon-192.png
+    // ships in public/ and is served at the site root.
+    const origin = window.location.origin;
+    Signer.connect(
+      {
+        type: "bunker",
+        via: "qr",
         relays: NOSTRCONNECT_RELAYS,
         name: "Orbee",
-        abort: bunkerAbort.signal,
+        url: origin,
+        image: `${origin}/icon-192.png`,
+      },
+      (e) => {
+        if (e.event === "uri") setBunkerUri(e.data.uri);
+      },
+      bunkerAbort.signal,
+    )
+      .then((signer) => persistAndFinish(signer))
+      .catch((e: any) => {
+        if (bunkerAbort?.signal.aborted) return;
+        setBunkerError(e?.message || "Signer never responded.");
       });
-      setBunkerUri(uri);
-      ready
-        .then((signer) => persistAndFinish(signer))
-        .catch((e: any) => {
-          if (bunkerAbort?.signal.aborted) return;
-          setBunkerError(e?.message || "Signer never responded.");
-        });
-    } catch (e: any) {
-      setBunkerError(e?.message || "Couldn't start the bunker flow.");
-    }
   }
 
   function cancelBunker() {
@@ -223,7 +259,7 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
     setBunkerError("");
     setBunkerStatus("Connecting…");
     try {
-      const signer = await Nip46Signer.fromBunkerUri(raw);
+      const signer = await Signer.connect({ type: "bunker", via: "uri", url: raw });
       persistAndFinish(signer);
     } catch (e: any) {
       setBunkerError(e?.message || "Couldn't connect to that bunker.");
@@ -243,7 +279,12 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
     }
   }
 
-  function persistAndFinish(signer: Nip46Signer) {
+  function persistAndFinish(signer: Signer) {
+    if (!signer.session) {
+      // The bunker entry paths always populate session; this is a typing
+      // safeguard for the non-bunker fall-through (which never reaches here).
+      throw new Error("bunker signer is missing session state");
+    }
     saveBunkerAuth({
       clientSkHex: bytesToHex(signer.session.clientSk),
       signerPubkey: signer.session.signerPubkey,
@@ -403,11 +444,24 @@ export default function SignIn(props: { onAuth: (auth: AuthState) => void }) {
           >
             I'll use a signer app
           </button>
+          <div class="signin-divider">or</div>
+          <input
+            type="text"
+            class="signin-name-input"
+            placeholder="What should we call you?"
+            value={signupName()}
+            onInput={(e) => setSignupName(e.currentTarget.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !busy() && signupName().trim()) fastMint(); }}
+            disabled={busy()}
+            spellcheck={false}
+            autocomplete="nickname"
+            maxLength={48}
+          />
           <button
             type="button"
             class="signin-btn-alt"
             onClick={fastMint}
-            disabled={busy()}
+            disabled={busy() || !signupName().trim()}
             onMouseEnter={() => setHovered("mint")}
             onMouseLeave={() => setHovered((h) => (h === "mint" ? null : h))}
           >

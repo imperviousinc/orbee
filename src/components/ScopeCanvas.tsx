@@ -4,6 +4,7 @@ import {
   SCOPE_GRID,
   monoPalette,
   accentPalette,
+  warnPalette,
   type ScopeSeed,
 } from "../lib/stationScope";
 import { theme } from "../lib/theme";
@@ -18,13 +19,17 @@ export default function ScopeCanvas(props: {
   bare?: boolean;
   /** Skip only the screen fill; keep grid+trace+scanlines. */
   transparentBg?: boolean;
+  /** When true, render in the amber palette and freeze the trace - signals
+   *  that the station's relay is unreachable. */
+  offline?: boolean;
 }) {
   let canvasRef!: HTMLCanvasElement;
   let rafId: number | null = null;
   let frame = 0;
 
   const size = () => props.size ?? 40;
-  const palette = () => (props.accent ? accentPalette() : monoPalette());
+  const palette = () =>
+    props.offline ? warnPalette() : props.accent ? accentPalette() : monoPalette();
   const buf = SCOPE_GRID * 4;
 
   function drawOnce() {
@@ -67,7 +72,9 @@ export default function ScopeCanvas(props: {
     theme();
     palette();
     props.seed;
-    if (props.animated) startLoop();
+    // Freeze the trace when offline: the still amber waveform reads as
+    // "this station's signal is dead" instead of confidently scrolling.
+    if (props.animated && !props.offline) startLoop();
     else { stopLoop(); drawOnce(); }
   });
 

@@ -1,16 +1,30 @@
-import { createMemo } from "solid-js";
 import { avatarSrc, markAvatarBroken, profiles } from "../lib/profiles";
 import { toggleProfileCard } from "../lib/profileCard";
 
-const AVATAR_H = 40;
-const PIN_GAP = 8;
+export const AVATAR_H = 40;
+export const PIN_GAP = 8;
 // .msg-group bottom padding; subtract so avatar bottom aligns with bubble bottom.
-const GROUP_BOTTOM_PAD = 10;
+export const GROUP_BOTTOM_PAD = 10;
+
+/** Compute the pinned Y in spacer coordinates given a group's bounds and
+ *  the live viewport bottom. Pure function so the same math runs in the
+ *  initial JSX render and in the imperative scroll handler. */
+export function avatarPinY(groupStart: number, groupEnd: number, visibleBottom: number): number {
+  const natural = groupEnd - AVATAR_H - GROUP_BOTTOM_PAD;
+  const pin = visibleBottom - AVATAR_H - PIN_GAP;
+  return Math.max(groupStart, Math.min(pin, natural));
+}
 
 /**
  * Sticky-bottom avatar for a message group. Replicates `position: sticky;
  * bottom: 8px` for absolutely-positioned virtualized rows (where sticky
- * doesn't apply). Layout in CSS; only Y is set inline.
+ * doesn't apply). The transform is set inline at mount time and is then
+ * updated *imperatively* by Feed's scroll handler (querying `.floating-
+ * avatar` and reading the data-group-* attrs) - going through Solid's
+ * reactive style binding on every scroll tick adds a microtask hop after
+ * the browser has already painted, which surfaces as visible avatar
+ * jitter relative to the bubbles. Group bounds change rarely (only on
+ * virtualizer remeasure) so re-rendering for those is fine.
  */
 export default function FloatingAvatar(props: {
   pubkey: string;
@@ -18,16 +32,10 @@ export default function FloatingAvatar(props: {
   groupStart: number;
   /** Y of group bottom within spacer (matches start + size). */
   groupEnd: number;
-  /** Live scroll-derived bottom edge in spacer coordinates. */
+  /** Initial visible bottom for first paint; later scrolls update via Feed. */
   visibleBottom: number;
 }) {
   const src = () => avatarSrc(props.pubkey);
-
-  const y = createMemo(() => {
-    const natural = props.groupEnd - AVATAR_H - GROUP_BOTTOM_PAD;
-    const pin = props.visibleBottom - AVATAR_H - PIN_GAP;
-    return Math.max(props.groupStart, Math.min(pin, natural));
-  });
 
   return (
     <img
@@ -47,8 +55,12 @@ export default function FloatingAvatar(props: {
         toggleProfileCard(props.pubkey, e.clientX, e.clientY);
       }}
       data-profile-trigger
+      data-group-start={props.groupStart}
+      data-group-end={props.groupEnd}
       title="View profile"
-      style={{ transform: `translate3d(0, ${y()}px, 0)` }}
+      style={{
+        transform: `translate3d(0, ${avatarPinY(props.groupStart, props.groupEnd, props.visibleBottom)}px, 0)`,
+      }}
     />
   );
 }

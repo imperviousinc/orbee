@@ -1,6 +1,5 @@
 import { createSignal, Show } from "solid-js";
-import { privkeyToNsec } from "../lib/keys";
-import { isLocalSigner, type Signer } from "../lib/signer";
+import { type Signer } from "../lib/signer";
 import { clearBackupPending } from "../lib/backup";
 import { loadClaimedHandle } from "../lib/handle";
 import { IconCopy } from "./icons";
@@ -12,7 +11,7 @@ import { IconCopy } from "./icons";
  * downloading the .spacecert file.
  *
  * Two sections (each self-contained, independently copy/downloadable):
- *   1. Nostr recovery key (nsec)         - only for LocalSigner sessions
+ *   1. Nostr recovery key (nsec)         - only for local-key sessions
  *   2. Spaces handle (secret + cert)     - only when a handle has been claimed
  *
  * Hitting "I've saved all of this" clears the banner-pending flag so
@@ -21,7 +20,7 @@ import { IconCopy } from "./icons";
 export default function BackupView(props: { signer: Signer; onClose: () => void }) {
   const claim = loadClaimedHandle();
 
-  const canShowNsec = isLocalSigner(props.signer);
+  const canShowNsec = props.signer.hasLocalKey;
   const hasHandle = !!claim;
 
   return (
@@ -68,13 +67,19 @@ export default function BackupView(props: { signer: Signer; onClose: () => void 
 
 
 function NostrSection(props: { signer: Signer }) {
-  const [revealed, setRevealed] = createSignal(false);
+  const [nsec, setNsec] = createSignal("");
+  const [revealError, setRevealError] = createSignal("");
   const [copied, setCopied] = createSignal(false);
+  const revealed = () => !!nsec();
 
-  const nsec = () => {
-    const s = props.signer;
-    return isLocalSigner(s) ? privkeyToNsec(s.keypair.privkey) : "";
-  };
+  async function reveal() {
+    try {
+      const value = await props.signer.exportNsec();
+      setNsec(value);
+    } catch (e: any) {
+      setRevealError(e?.message || "Couldn't read the key.");
+    }
+  }
 
   async function copy() {
     try {
@@ -97,13 +102,14 @@ function NostrSection(props: { signer: Signer }) {
         <Show
           when={revealed()}
           fallback={
-            <button
-              type="button"
-              class="backup-reveal"
-              onClick={() => setRevealed(true)}
-            >
-              Reveal key
-            </button>
+            <>
+              <button type="button" class="backup-reveal" onClick={reveal}>
+                Reveal key
+              </button>
+              <Show when={revealError()}>
+                <div class="backup-error">{revealError()}</div>
+              </Show>
+            </>
           }
         >
           <code class="backup-code">{nsec()}</code>

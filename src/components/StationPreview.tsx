@@ -10,7 +10,7 @@ import {
   stationKey,
   type StationRef,
 } from "../lib/stations";
-import { getRelay } from "../lib/nostr";
+import { getRelay, isRelayConnected } from "../lib/nostr";
 import { subscribeStationActivity } from "../lib/stationActivity";
 import TakeoverCard from "./TakeoverCard";
 
@@ -47,6 +47,10 @@ export default function StationPreview(props: {
   const [relay, setRelay] = createSignal(props.initial.relay);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal("");
+  // What we're doing right now while busy: "Connecting to relay…",
+  // "Creating station…", "Tuning in…", etc. Shows as a visible progress
+  // line above the buttons, not just a button label change.
+  const [stage, setStage] = createSignal("");
   const [pickedMode, setPickedMode] = createSignal<PreviewMode>(props.mode || "tune");
   const [openAccess, setOpenAccess] = createSignal(true);
   // Set after kind:9021 against a closed station - waiting for admin 9000.
@@ -105,6 +109,34 @@ export default function StationPreview(props: {
     onCleanup(() => getRelay(r).unsubscribe(subId));
   });
 
+  // Wait up to `timeoutMs` for the relay to be in the `connectedUrls` set.
+  // NostrRelay.connect() resolves either on a real ack or after a 5s safety
+  // timeout, so we don't block on the connect Promise itself - we poll the
+  // reactive flag and bail with a clear error if it's still false at the
+  // end. This catches the "WS dial failed / unreachable host" case before
+  // we publish into a void.
+  async function ensureConnected(url: string, timeoutMs: number): Promise<boolean> {
+    if (isRelayConnected(url)) return true;
+    getRelay(url).connect();
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (isRelayConnected(url)) return true;
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    return isRelayConnected(url);
+  }
+
+  // Race a promise against a hard timeout - publish() can hang forever
+  // when the relay accepts the WS handshake but never sends an OK back.
+  function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+    return Promise.race([
+      p,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} (relay didn't respond within ${Math.round(ms / 1000)}s)`)), ms),
+      ),
+    ]);
+  }
+
   async function handleSubmit() {
     const r = relay().trim();
     if (!r.startsWith("ws://") && !r.startsWith("wss://")) {
@@ -120,12 +152,26 @@ export default function StationPreview(props: {
     setError("");
     try {
       const ref: StationRef = { id, relay: r };
+
+      // Connectivity precheck. Don't publish a kind:9007 (or 9021) into a
+      // socket that isn't actually open - the publish would hang or, worse,
+      // resolve "ok" against a half-open connection while the server never
+      // saw the event. Fail fast with a clear message.
+      setStage(isMint() ? "Connecting to relay…" : "Connecting to relay…");
+      const connected = await ensureConnected(r, 8000);
+      if (!connected) {
+        setError(`Can't reach ${r.replace(/^wss?:\/\//, "")}. Check the URL or try a different relay.`);
+        return;
+      }
+
       if (isMint()) {
         const name = displayName().trim() || undefined;
-        const { createResult, metaResult } = await mintStation(props.signer, ref, {
-          open: openAccess(),
-          name,
-        });
+        setStage("Creating station…");
+        const { createResult, metaResult } = await withTimeout(
+          mintStation(props.signer, ref, { open: openAccess(), name }),
+          15_000,
+          "Couldn't create station",
+        );
         if (!createResult.ok) {
           setError(createResult.message
             ? `Relay rejected: ${createResult.message}`
@@ -141,10 +187,14 @@ export default function StationPreview(props: {
         props.onJoined(ref);
         return;
       }
+
       // tune mode
-      const result = await requestJoin(props.signer, ref, {
-        code: props.inviteCode || undefined,
-      });
+      setStage("Tuning in…");
+      const result = await withTimeout(
+        requestJoin(props.signer, ref, { code: props.inviteCode || undefined }),
+        15_000,
+        "Couldn't tune in",
+      );
       if (!result.ok) {
         setError(result.message
           ? `Relay rejected: ${result.message}`
@@ -164,6 +214,7 @@ export default function StationPreview(props: {
       setError(e?.message || (isMint() ? "Couldn't mint station." : "Couldn't tune in."));
     } finally {
       setBusy(false);
+      setStage("");
     }
   }
 
@@ -175,7 +226,7 @@ export default function StationPreview(props: {
     if (isMint()) {
       return "This is where your broadcast will live. Pick the relay to host it - anyone joining will need to connect there.";
     }
-    return "Stations live on relays. Each Orbee station is hosted by whoever's relay you pick - change it to broadcast on a different one.";
+    return "Stations live on relays. Each Orbee station is hosted by whoever's relay you pick";
   };
   const submitIdleLabel = () => {
     if (isMint()) return "Start broadcasting";
@@ -363,6 +414,12 @@ export default function StationPreview(props: {
 
           <Show when={error()}>
             <div class="station-preview-error">{error()}</div>
+          </Show>
+          <Show when={busy() && stage() && !error()}>
+            <div class="station-preview-progress">
+              <span class="station-preview-progress-dot" />
+              <span class="station-preview-progress-text">{stage()}</span>
+            </div>
           </Show>
 
           <div class="station-preview-actions">

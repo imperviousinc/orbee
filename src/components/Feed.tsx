@@ -37,7 +37,8 @@ import {
   recordRowHeight,
 } from "../lib/messageCache";
 import MessageGroup from "./MessageGroup";
-import FloatingAvatar from "./FloatingAvatar";
+// FloatingAvatar was retired in favour of a sticky avatar inside
+// MessageGroup's rail; the compositor pins it synchronously with scroll.
 import { IconArrowDown } from "./icons";
 
 // Diagnostic instrumentation. Toggle from the browser console:
@@ -179,18 +180,11 @@ export default function Feed(props: {
   let wasAtBottom = true;
   const [scrolledUp, setScrolledUp] = createSignal(false);
 
-  // Viewport bottom in the spacer's local coordinate space (px from top of
-  // `.messages-virtual`). Drives FloatingAvatar pin position.
-  const [visibleBottomY, setVisibleBottomY] = createSignal(0);
-
-  function updateVisibleBottom() {
-    if (!scrollContainer || !messagesVirtual) return;
-    const cRect = scrollContainer.getBoundingClientRect();
-    const sRect = messagesVirtual.getBoundingClientRect();
-    const next = cRect.bottom - sRect.top;
-    if (next === visibleBottomY()) return;
-    setVisibleBottomY(next);
-  }
+  // No-op kept for back-compat with handleScroll's call site - the avatar
+  // is now a CSS `position: sticky` element inside each MessageGroup's
+  // rail, so the compositor pins it to viewport bottom synchronously
+  // with scroll. Nothing to update on the JS side per scroll tick.
+  function updateVisibleBottom() { /* sticky-handled */ }
 
   function isScrolledToBottom(): boolean {
     if (!scrollContainer) return true;
@@ -616,8 +610,6 @@ export default function Feed(props: {
     return out;
   });
 
-  // Avatars live in a sibling overlay (FloatingAvatar), not inside virtual
-  // rows, to avoid `position: sticky` quirks within absolute ancestors.
   const rowVirtualizer = createVirtualizer({
     get count() {
       return renderItems().length;
@@ -728,17 +720,24 @@ export default function Feed(props: {
       const h = entry.contentRect.height;
       const grew = h > lastVirtualHeight;
       const delta = Math.round(h - lastVirtualHeight);
+      // Strict live check rather than the cached wasAtBottom (which has
+      // an 80px tolerance and lags scroll). Without this, the user
+      // scrolling 1px upward at the bottom triggers a row remeasure,
+      // virtualRo fires with grew=true, and we snap back to bottom -
+      // visible as a tiny "scrolls down then works" jolt.
+      const liveAtBottom = !!scrollContainer
+        && (scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight) < 2;
       if (delta !== 0) {
         feedDbg("spacer", {
           prev: Math.round(lastVirtualHeight),
           size: Math.round(h),
           delta,
-          atBottom: wasAtBottom,
-          rePinned: !!(grew && wasAtBottom && messagesEnd),
+          atBottom: liveAtBottom,
+          rePinned: !!(grew && liveAtBottom && messagesEnd),
         });
       }
       lastVirtualHeight = h;
-      if (grew && wasAtBottom && messagesEnd) {
+      if (grew && liveAtBottom && messagesEnd) {
         messagesEnd.scrollIntoView({ block: "end" });
       }
       updateVisibleBottom();
@@ -893,12 +892,7 @@ export default function Feed(props: {
       <Show when={events().length > 0}>
         <div
           class="messages-virtual"
-          ref={(el) => {
-            messagesVirtual = el;
-            // Compute visibleBottom on spacer mount so FloatingAvatar's
-            // first render has a real value (avoids an extra repaint).
-            updateVisibleBottom();
-          }}
+          ref={(el) => { messagesVirtual = el; }}
           style={{
             position: "relative",
             height: `${rowVirtualizer.getTotalSize()}px`,
@@ -916,11 +910,17 @@ export default function Feed(props: {
                       rowVirtualizer.measureElement(el);
                     }}
                     style={{
+                      // top instead of transform: translateY so the
+                      // sticky avatar inside MessageGroup's rail isn't
+                      // trapped by the containing-block that transform
+                      // creates (WebKit doesn't honour sticky inside a
+                      // transformed ancestor). vi.start changes rarely
+                      // enough that the GPU-acceleration win of
+                      // transform isn't worth losing sticky.
                       position: "absolute",
-                      top: "0",
+                      top: `${vi.start}px`,
                       left: "0",
                       width: "100%",
-                      transform: `translateY(${vi.start}px)`,
                     }}
                   >
                     <Show
@@ -944,23 +944,6 @@ export default function Feed(props: {
             }}
           </For>
 
-          {/* Floating avatar overlay - sibling of bubble rows (not child),
-              to recreate sticky-avatar behavior outside an absolute ancestor. */}
-          <For each={rowVirtualizer.getVirtualItems()}>
-            {(vi) => {
-              const item = () => (vi ? renderItems()[vi.index] : undefined);
-              return (
-                <Show when={vi && item()?.kind === "group"}>
-                  <FloatingAvatar
-                    pubkey={(item() as { events: NostrEvent[] }).events[0].pubkey}
-                    groupStart={vi.start}
-                    groupEnd={vi.start + vi.size}
-                    visibleBottom={visibleBottomY()}
-                  />
-                </Show>
-              );
-            }}
-          </For>
         </div>
       </Show>
       </div>

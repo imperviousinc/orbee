@@ -4,9 +4,12 @@
   --bg-sidebar: var(--bg-raised);
   --bg-main: #151513;
   --bg-input: var(--bg-raised);
-  --chrome-bg: #151513;
-  --chrome-border: rgba(255, 255, 255, 0.13);
-  --chrome-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  --chrome-bg: #181818;
+  --chrome-border: rgba(255, 255, 255, 0.12);
+  --chrome-shadow:
+          0 1px 2px rgba(0, 0, 0, 0.3),
+          0 2px 6px rgba(0, 0, 0, 0.25),
+          0 6px 16px rgba(0, 0, 0, 0.2);
   --bg-hover: rgba(255, 255, 255, 0.06);
   --bg-message-hover: color-mix(in srgb, var(--accent) 1.8%, transparent);
   --border: rgba(255, 255, 255, 0.08);
@@ -339,21 +342,22 @@ body {
   --wp-opacity: 0.32;
 }
 
-.app-grid::before {
-  content: '';
-  position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image:
-    radial-gradient(
-      ellipse 130% 100% at 50% 50%,
-      transparent 0%,
-      transparent 55%,
-      rgba(0, 0, 0, 0.08) 80%,
-      rgba(0, 0, 0, 0.18) 100%
-    );
-}
+/*.app-grid::before {*/
+/*  content: '';*/
+/*  position: fixed;*/
+/*  top: 0; left: 0; right: 0; bottom: 0;*/
+/*  pointer-events: none;*/
+/*  z-index: 0;*/
+/*  background-image:*/
+/*    radial-gradient(*/
+/*      ellipse 130% 100% at 50% 50%,*/
+/*      transparent 0%,*/
+/*      transparent 55%,*/
+/*      rgba(0, 0, 0, 0.08) 80%,*/
+/*      rgba(0, 0, 0, 0.18) 100%*/
+/*    );*/
+/*  transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1);*/
+/*}*/
 
 .app-wrap::before {
   content: '';
@@ -374,20 +378,34 @@ body {
   transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.app-wrap::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(
-    ellipse 70% 65% at 50% 55%,
-    color-mix(in srgb, var(--bg-deep) 55%, transparent) 0%,
-    color-mix(in srgb, var(--bg-deep) 40%, transparent) 35%,
-    color-mix(in srgb, var(--bg-deep) 15%, transparent) 65%,
-    transparent 100%
-  );
+/* Hide the wallpaper grid + both atmospheric vignettes while the user is
+   inside a chat. Pattern stays on for between-things surfaces (empty
+   state, station preview/settings, profile editor, backup view, claim
+   flow) where the texture reads as scaffolding. The vignette gradients
+   were tuned to add depth on top of the patterned wallpaper; on a flat
+   backdrop their colour stops show through as visible bands — and the
+   context menu's backdrop-blur amplifies the banding. */
+.app-wrap.is-in-chat::before,
+.app-wrap.is-in-chat::after,
+.app-wrap.is-in-chat .app-grid::before {
+  opacity: 0;
 }
+
+/*.app-wrap::after {*/
+/*  content: '';*/
+/*  position: fixed;*/
+/*  inset: 0;*/
+/*  pointer-events: none;*/
+/*  z-index: 0;*/
+/*  background: radial-gradient(*/
+/*    ellipse 70% 65% at 50% 55%,*/
+/*    color-mix(in srgb, var(--bg-deep) 55%, transparent) 0%,*/
+/*    color-mix(in srgb, var(--bg-deep) 40%, transparent) 35%,*/
+/*    color-mix(in srgb, var(--bg-deep) 15%, transparent) 65%,*/
+/*    transparent 100%*/
+/*  );*/
+/*  transition: opacity 280ms cubic-bezier(0.22, 1, 0.36, 1);*/
+/*}*/
 
 .app-grid.is-tuning::after { opacity: 1; }
 
@@ -652,6 +670,22 @@ body {
   border-left: 4px solid var(--accent);
 }
 
+/* Active station whose relay is unreachable: every accent surface in the
+   row swaps to --warn so the row reads as broken-but-selected, not
+   confidently-on. Pairs with the OFF-AIR pill in the header and the
+   amber-frozen scope canvas. */
+.channel.active.is-offline {
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+  border-left-color: var(--warn);
+}
+.channel.active.is-offline .ch-freq {
+  color: var(--warn);
+}
+.channel.is-offline[data-label]::after {
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+}
+
 .station-scope {
   flex-shrink: 0;
   display: block;
@@ -773,6 +807,80 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Manual import-from-relay block sits below the featured cards in the
+   Discover tab. Lets a user bring a NIP-29 relay they've used before
+   to repopulate their station list - replaces the old auto-discovery
+   that prompted AUTH against groups.0xchat.com on every boot. */
+.explore-import {
+  margin: 18px 0 0;
+  padding: 14px 14px 12px;
+  background: color-mix(in srgb, var(--text-muted) 6%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+.explore-import-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.explore-import-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 8px 12px;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+.explore-import-input:focus { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.explore-import-input:disabled { opacity: 0.6; cursor: not-allowed; }
+.explore-import-btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+.explore-import-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.explore-import-btn:disabled { opacity: 0.5; cursor: default; }
+.explore-import-hint {
+  margin-top: 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.explore-import-status {
+  margin-top: 10px;
+  padding: 8px 12px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.explore-import-status.is-info {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.explore-import-status.is-error {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 6%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 24%, transparent);
 }
 
 .explore-card-item {
@@ -1811,6 +1919,31 @@ body {
   padding: 8px 12px;
 }
 
+/* Progress line shown while a create / tune action is in flight. Sits in
+   the same slot as the error block; renders only when busy and not in an
+   error state, so the user sees one or the other but not both. */
+.station-preview-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 5px;
+  padding: 8px 12px;
+}
+.station-preview-progress-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
 .station-preview-actions {
   display: flex;
   gap: 10px;
@@ -2110,7 +2243,6 @@ body {
   font-size: 10px;
   letter-spacing: 0.2px;
   color: var(--text-muted);
-  border-top: 1px solid var(--border-subtle);
 }
 .sidebar-kbd-hint kbd {
   display: inline-flex;
@@ -2302,11 +2434,55 @@ body {
   border-radius: 50%;
   box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 60%, transparent);
   animation: pulse 3.4s ease-in-out infinite;
+  transition: background 200ms ease, box-shadow 200ms ease;
 }
 
 .mh-onair-text {
   color: var(--accent);
   opacity: 0.85;
+  transition: color 200ms ease;
+}
+
+/* Off-air state: relay is unreachable. Amber instead of phosphor (matches
+   the standby/unverified colour family used elsewhere — claim-bolt idle,
+   request-access banner, etc.). Drops the all-caps + wide tracking from
+   .mh-ident: an error message shouldn't shout. The faster pulse signals
+   "trying" rather than the calm "I'm here" that ON AIR conveys. */
+.mh-ident.is-off-air {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.mh-ident.is-off-air .mh-onair-dot {
+  background: var(--warn);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--warn) 60%, transparent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.mh-ident.is-off-air .mh-onair-text {
+  color: var(--warn);
+}
+
+/* The mh-ident sits at the top of .main, which has overflow:hidden to
+   contain the rounded feed. The default data-tip is centered on the
+   anchor and floats *above* it, which would be clipped on the top
+   (main's top edge) and on the right (the right sidebar boundary, since
+   mh-ident sits near the right end of the header). Flip the tooltip
+   below the anchor and pin its right edge to the anchor's right edge
+   so it extends inward instead of outward. */
+.mh-ident[data-tip]::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+  left: auto;
+  right: 0;
+  transform: translateY(-4px);
+}
+.mh-ident[data-tip]::before {
+  bottom: auto;
+  top: calc(100% + 1px);
+  border-top-color: transparent;
+  border-bottom-color: var(--overlay-edge-light);
+}
+.mh-ident[data-tip]:hover::after {
+  transform: translateY(0);
 }
 
 .mh-sep {
@@ -2371,10 +2547,16 @@ body {
   justify-content: flex-end;
 }
 
-.floating-avatar {
-  position: absolute;
-  top: 0;
-  left: 20px;            /* must match .msg-group's padding-left */
+/* Sticky avatar: the compositor pins this to bottom: 10px synchronously
+   with scroll, so the avatar tracks the viewport without the one-frame
+   lag a JS scroll-handler unavoidably has (scroll events fire after the
+   compositor has already painted the new scroll position). The avatar
+   sits at the rail's bottom in normal flow, then sticks once its natural
+   position would push above the scroll viewport's bottom. */
+.msg-group-avatar {
+  position: sticky;
+  bottom: 10px;
+  align-self: flex-end;
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -2384,11 +2566,9 @@ body {
   display: block;
   cursor: pointer;
   pointer-events: auto;
-  will-change: transform;
 }
-[data-theme="light"] .floating-avatar { background: rgba(0, 0, 0, 0.03); }
-
-.floating-avatar:hover { opacity: 0.85; }
+[data-theme="light"] .msg-group-avatar { background: rgba(0, 0, 0, 0.03); }
+.msg-group-avatar:hover { opacity: 0.85; }
 
 .msg-group-stack {
   flex: 1;
@@ -2596,6 +2776,24 @@ body {
 }
 [data-theme="light"] .handle-tail { opacity: 0.7; }
 
+/* In the member list (a dense vertical roster), collapse the handle's
+   domain tail (e.g. ".genesis@key") to a single ellipsis so the visible
+   identity is just the leaf. font-size: 0 collapses the original glyphs
+   without removing them from the DOM (so screen readers / copy-paste
+   still get the full handle), and the ::before paints "…" at the row's
+   font size. The full handle pops in the data-tip on hover - no layout
+   shift. Bubbles keep the full handle since the meta row is sparser
+   and the suffix carries identity weight in conversation. */
+.member .handle-tail {
+  font-size: 0;
+  letter-spacing: 0;
+}
+.member .handle-tail::before {
+  content: "\2026"; /* … */
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
 .msg-handle:hover { text-decoration: underline; }
 
 .handle-label {
@@ -2641,8 +2839,7 @@ body {
 }
 .handle {
   font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 14px;
+  font-size: 15px;
   letter-spacing: 0;
   cursor: pointer;
   transition: filter 120ms ease;
@@ -3467,10 +3664,10 @@ body {
    capsule's radius stays the same so it never visually "squares". */
 .input-box .input {
   flex: 1;
-  background: var(--bg-raised);
+  background: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--font-body);
-  font-size: 13.5px;
+  font-size: 14px;
   outline: none;
   resize: none;
   line-height: 1.45;
@@ -3704,7 +3901,6 @@ body {
   text-transform: none;
   color: var(--text-primary);
   padding: 0 0 10px;
-  border-bottom: 1px solid var(--divider);
 }
 
 .rs-header-n {
@@ -4085,7 +4281,7 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .ml-label {
@@ -4097,15 +4293,17 @@ body {
   padding: 10px 10px 5px;
 }
 
-/* Member list row - tight layout per design.html. 28px avatar, 8px
-   padding/radius, Fragment Mono 12px handle with 11px display-name
-   below (muted). Hovers use the page-level subtle tint. */
+/* Member list row - 40px avatar, 12px vertical padding, Fragment Mono
+   14px handle with 12px display-name below (muted). Bumped up from the
+   original 28/12/11 trio so fewer rows are visible at once and each
+   row reads as a deliberate person, not a packed list entry. Hovers
+   use the page-level subtle tint. */
 .member {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px;
-  border-radius: 8px;
+  gap: 12px;
+  padding: 12px 10px;
+  border-radius: 10px;
   cursor: pointer;
   transition: background 120ms ease;
   position: relative;
@@ -4115,14 +4313,14 @@ body {
 [data-theme="light"] .member:hover { background: rgba(0, 0, 0, 0.03); }
 
 .member-avatar {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--bg-deep);
   flex-shrink: 0;
@@ -4134,8 +4332,8 @@ body {
 [data-theme="light"] .member-avatar { background: rgba(0, 0, 0, 0.03); }
 
 .member-avatar img {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   object-fit: cover;
 }
@@ -4151,7 +4349,7 @@ body {
 
 .member-handle {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0;
   white-space: nowrap;
@@ -4168,7 +4366,7 @@ body {
 .member-handle.is-npub {
   font-weight: 400;
   letter-spacing: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* Per-station role label - shown as small mono chip next to a member's handle.
@@ -4251,10 +4449,10 @@ body {
 }
 
 .member-role {
-  font-size: 11px;
+  font-size: 12px;
   font-family: var(--font-body);
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
   letter-spacing: 0;
 }
 
@@ -5010,9 +5208,11 @@ body {
 .claim-wheel-band::before { top: 0; }
 .claim-wheel-band::after  { bottom: 0; }
 
-/* Top/bottom fade masks - blend the scrolling items into the backdrop
-   so edges don't clip hard. Gradient terminates to var(--bg-deep)
-   (the page background) so there's no visible seam. */
+/* Top/bottom fade masks - blend the scrolling items into the signin
+   card's chrome backdrop so edges don't clip hard. Both stops resolve
+   from var(--chrome-bg) so the fade tracks whatever chrome colour is
+   in effect (dark theme, light theme, future palette tweaks) without
+   re-hardcoding rgb values. */
 .claim-wheel-fade-t,
 .claim-wheel-fade-b {
   position: absolute;
@@ -5028,8 +5228,8 @@ body {
   height: 22%;
   background: linear-gradient(
     to bottom,
-    var(--bg-deep) 10%,
-    rgba(21, 21, 19, 0.55) 65%,
+    var(--chrome-bg) 10%,
+    color-mix(in srgb, var(--chrome-bg) 55%, transparent) 65%,
     transparent
   );
 }
@@ -5038,8 +5238,8 @@ body {
   height: 26%;
   background: linear-gradient(
     to top,
-    var(--bg-deep) 10%,
-    rgba(21, 21, 19, 0.55) 65%,
+    var(--chrome-bg) 10%,
+    color-mix(in srgb, var(--chrome-bg) 55%, transparent) 65%,
     transparent
   );
 }
@@ -6516,6 +6716,32 @@ body {
 .signin-btn-alt:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Display-name input on the "I'm new here" view. Required to enable the
+   "Just get me on the air" CTA so a brand-new account always lands with
+   a kind:0 display_name set, instead of "npub1xy7p…" everywhere. */
+.signin-name-input {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 400;
+  padding: 12px 14px;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 120ms ease;
+  box-sizing: border-box;
+}
+.signin-name-input::placeholder { color: var(--text-muted); }
+.signin-name-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.signin-name-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* ── Bunker (NIP-46) sign-in panel ────────────────────────────── */

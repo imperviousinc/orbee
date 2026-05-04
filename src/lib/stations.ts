@@ -167,32 +167,65 @@ export function seedStations() {
 /**
  * Cross-device station rediscovery: query for kind:39002 (members) events
  * naming the user, auto-add any matches to the joined list. Idempotent.
+ * Returns a promise that resolves once every relay's EOSE arrives, with
+ * counts of newly-added vs. already-known matches per relay - lets the
+ * Discover-tab "Import" UI surface a result message instead of silently
+ * scanning. Resolves regardless of relay errors; per-relay failures are
+ * surfaced as `error` strings.
  */
-export function discoverJoinedStations(myPubkey: string, relayUrls: string[] = [STATIONS_RELAY_URL]) {
-  for (const url of relayUrls) {
+export interface ImportRelayResult {
+  relay: string;
+  added: number;
+  alreadyJoined: number;
+  error?: string;
+}
+
+export function discoverJoinedStations(
+  myPubkey: string,
+  relayUrls: string[] = [STATIONS_RELAY_URL],
+): Promise<ImportRelayResult[]> {
+  return Promise.all(relayUrls.map((url) => scanOneRelay(myPubkey, url)));
+}
+
+function scanOneRelay(myPubkey: string, url: string): Promise<ImportRelayResult> {
+  return new Promise<ImportRelayResult>((resolve) => {
     const r = getRelay(url);
+    let added = 0;
+    let alreadyJoined = 0;
+    let settled = false;
+    const finish = (error?: string) => {
+      if (settled) return;
+      settled = true;
+      resolve({ relay: url, added, alreadyJoined, error });
+    };
+    // Safety timeout: relay is unreachable or never sends EOSE.
+    const t = setTimeout(() => finish("relay didn't respond within 15s"), 15_000);
     r.connect();
     const sub = r.subscribe(
       { kinds: [39002], "#p": [myPubkey] },
       (event) => {
-        const d = event.tags.find((t) => t[0] === "d")?.[1];
+        const d = event.tags.find((tag) => tag[0] === "d")?.[1];
         if (!d) return;
         const ref: StationRef = { id: d, relay: url };
         const list = loadStoredStations();
         if (list.some((s) => s.id === ref.id && s.relay === ref.relay)) {
+          alreadyJoined++;
           handleMetadataEvent(url, event, true);
           return;
         }
+        added++;
         saveStoredStations([...list, ref]);
         ensureStation(ref);
         refreshJoinedStations();
         handleMetadataEvent(url, event, true);
       },
       () => {
+        clearTimeout(t);
         r.unsubscribe(sub);
+        finish();
       },
     );
-  }
+  });
 }
 
 function ensureStation(s: StationRef, seed: Partial<Station> = {}) {

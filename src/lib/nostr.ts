@@ -1,5 +1,6 @@
+import { createSignal } from "solid-js";
 import type { NostrEvent } from "./keys";
-import type { Signer } from "./signer";
+import { dispatchSignerMessage } from "./signerRpc";
 
 export type NostrFilter = {
   ids?: string[];
@@ -15,7 +16,11 @@ export type NostrFilter = {
   limit?: number;
 };
 
-export const STATIONS_RELAY_URL = "wss://groups.0xchat.com";
+/** Default NIP-29 relay used when minting / joining new stations and as
+ *  the seed for cross-device discovery. Featured stations on other relays
+ *  (e.g. groups.0xchat.com for Grimoire/Chachi) still join via their own
+ *  relay - this only seeds new entries. */
+export const STATIONS_RELAY_URL = "wss://stations.orbee.chat";
 
 let workerPort: MessagePort | null = null;
 
@@ -53,6 +58,18 @@ const okHandlers = new Map<string, OkHandler>();
 const connectListeners = new Map<string, Array<() => void>>();
 const connectedUrls = new Set<string>();
 
+// Reactive tick: bumped whenever a relay's connection state changes so
+// Solid components reading isRelayConnected() re-evaluate. We don't keep
+// a per-url signal because lookup is constant-time over a Set anyway.
+const [connTick, setConnTick] = createSignal(0);
+
+/** Reactive: is this relay's WebSocket currently up? Components calling
+ *  this inside a tracking scope re-render on connect/disconnect. */
+export function isRelayConnected(url: string): boolean {
+  connTick(); // subscribe
+  return connectedUrls.has(url);
+}
+
 type FabricHandler = (data: any) => void;
 const fabricHandlers: FabricHandler[] = [];
 export function onFabricMessage(h: FabricHandler) {
@@ -67,6 +84,9 @@ export function onFabricStateChange(fn: FabricStateListener): () => void {
 }
 
 function dispatchFromWorker(data: any) {
+  // Signer-service messages (signer_response/error/event + nip07 reverse-
+  // call). Routed through signerRpc.ts; if it claims the message we're done.
+  if (dispatchSignerMessage(data)) return;
   switch (data.type) {
     case "event":
     case "eose":
@@ -83,11 +103,9 @@ function dispatchFromWorker(data: any) {
       }
       break;
     }
-    case "auth_required":
-      handleAuthRequired(data);
-      break;
     case "connected": {
       connectedUrls.add(data.relay);
+      setConnTick((t) => t + 1);
       const listeners = connectListeners.get(data.relay);
       if (listeners) {
         connectListeners.delete(data.relay);
@@ -97,6 +115,7 @@ function dispatchFromWorker(data: any) {
     }
     case "disconnected":
       connectedUrls.delete(data.relay);
+      setConnTick((t) => t + 1);
       break;
     case "notice":
       console.warn(`[relay] NOTICE:`, data.message);
@@ -138,30 +157,9 @@ function dispatchFromWorker(data: any) {
   }
 }
 
-let globalAuthSigner: Signer | null = null;
-
-async function handleAuthRequired(data: { authId: string; relay: string; template: any }) {
-  const port = ensureWorker();
-  if (!globalAuthSigner) {
-    port.postMessage({ type: "auth_error", authId: data.authId, message: "no signer" });
-    return;
-  }
-  try {
-    const signed = await globalAuthSigner.signEvent(data.template);
-    port.postMessage({ type: "auth_response", authId: data.authId, event: signed });
-  } catch (e: any) {
-    port.postMessage({
-      type: "auth_error",
-      authId: data.authId,
-      message: String(e?.message || e || "signer failed"),
-    });
-  }
-}
-
-/** Register the Signer used to answer NIP-42 AUTH challenges on every relay. */
-export function setGlobalAuthSigner(s: Signer | null) {
-  globalAuthSigner = s;
-}
+// NIP-42 AUTH used to bounce challenges out to whichever tab held the
+// active signer. Now that the signer lives in the worker, AUTH challenges
+// are signed in-worker and never reach main thread.
 
 class NostrRelay {
   private subCounter = 0;
@@ -172,8 +170,8 @@ class NostrRelay {
   get relayUrl(): string { return this.url; }
   get isConnected(): boolean { return connectedUrls.has(this.url); }
 
-  /** Back-compat no-op; auth signer is registered globally via setGlobalAuthSigner. */
-  setAuthSigner(_signer: Signer | null) { /* handled by setGlobalAuthSigner */ }
+  /** Back-compat no-op; the worker owns the signer now and signs AUTH internally. */
+  setAuthSigner(_signer: unknown) { /* no-op */ }
 
   connect(): Promise<void> {
     if (connectedUrls.has(this.url)) return Promise.resolve();
@@ -296,7 +294,7 @@ class ProfileRelay {
 
   connect(): Promise<void> { return Promise.resolve(); }
 
-  setAuthSigner(_signer: Signer | null) { /* handled by setGlobalAuthSigner */ }
+  setAuthSigner(_signer: unknown) { /* no-op */ }
 
   subscribe(
     filter: NostrFilter,

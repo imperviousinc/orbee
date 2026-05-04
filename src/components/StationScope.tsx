@@ -26,6 +26,8 @@ export default function StationScope(props: {
   bare?: boolean;
   /** Transparent bg; see ScopeCanvas.transparentBg. */
   transparentBg?: boolean;
+  /** Relay is unreachable: paint amber, freeze the trace. */
+  offline?: boolean;
 }) {
   const effectiveSeed = (): ScopeSeed => {
     const base = getStationScopeSeed(props.stationId, props.relay);
@@ -42,6 +44,7 @@ export default function StationScope(props: {
       accent={props.accent}
       bare={props.bare}
       transparentBg={props.transparentBg}
+      offline={props.offline}
     />
   );
 }

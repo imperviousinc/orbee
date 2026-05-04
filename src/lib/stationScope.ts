@@ -10,11 +10,17 @@ const MONO_DARK: ScopePalette  = { trace: "#8a8e94", screen: "#141517", grid: "#
 const MONO_LIGHT: ScopePalette = { trace: "#6a6a70", screen: "#ece7d9", grid: "#cfc8b8" };
 const ACCENT_DARK: ScopePalette  = { trace: "#d946ef", screen: "#150f17", grid: "#241b27" };
 const ACCENT_LIGHT: ScopePalette = { trace: "#a21caf", screen: "#f5e5f5", grid: "#dcc4dc" };
+// Warn (amber) palette used when the station's relay is unreachable.
+// Same hue family as --warn (#e8a843); screen + grid scaled darker to keep
+// the trace as the focal element.
+const WARN_DARK: ScopePalette  = { trace: "#e8a843", screen: "#171410", grid: "#2a2218" };
+const WARN_LIGHT: ScopePalette = { trace: "#a86b16", screen: "#f5ecd9", grid: "#dcc89c" };
 
 import { theme } from "./theme";
 
 export function monoPalette(): ScopePalette { return theme() === "light" ? MONO_LIGHT : MONO_DARK; }
 export function accentPalette(): ScopePalette { return theme() === "light" ? ACCENT_LIGHT : ACCENT_DARK; }
+export function warnPalette(): ScopePalette { return theme() === "light" ? WARN_LIGHT : WARN_DARK; }
 
 export const MONO_PALETTE: ScopePalette = MONO_DARK;
 export const ACCENT_PALETTE: ScopePalette = ACCENT_DARK;

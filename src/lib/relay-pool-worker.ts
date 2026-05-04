@@ -8,6 +8,14 @@
 
 import { SimplePool } from "nostr-tools/pool";
 import type { Event, EventTemplate, Filter, VerifiedEvent } from "nostr-tools";
+import {
+  BunkerSigner,
+  createNostrConnectURI,
+  parseBunkerInput,
+  type BunkerPointer,
+} from "nostr-tools/nip46";
+import { generateSecretKey, finalizeEvent, getPublicKey as pubFromSk } from "nostr-tools/pure";
+import { schnorr } from "@noble/curves/secp256k1.js";
 import { Fabric, init as initFabric, RecordSet } from "@spacesprotocol/fabric-web";
 import type { Fabric as FabricInstance } from "@spacesprotocol/fabric-web";
 // Side-effect import: registers BIP-340 Schnorr signer with fabric-core.
@@ -38,15 +46,6 @@ console.log = (...a: unknown[]) => { _origLog(...a); broadcastLog("log", a); };
 console.warn = (...a: unknown[]) => { _origWarn(...a); broadcastLog("warn", a); };
 console.error = (...a: unknown[]) => { _origErr(...a); broadcastLog("error", a); };
 
-// Dedicated kind:0 + 10002 indexer relays. SimplePool dedupes across them.
-// Read kind:0 from indexer relays - they aggregate profiles across the
-// network so we don't need to follow per-author NIP-65 outboxes.
-const PROFILE_READ_RELAYS = [
-  "wss://purplepag.es",
-  "wss://user.kindpag.es",
-  "wss://relay.primal.net",
-];
-
 // Write kind:0 to general relays that accept writes from any pubkey.
 // Indexers are read-only for arbitrary clients; publishing only to them
 // silently no-ops propagation.
@@ -56,24 +55,29 @@ const PROFILE_WRITE_RELAYS = [
   "wss://nos.lol",
 ];
 
-type AuthPending = {
-  resolve: (e: VerifiedEvent) => void;
-  reject: (e: unknown) => void;
-};
-const pendingAuth = new Map<string, AuthPending>();
-let authSeq = 0;
+// Read kind:0 from indexers PLUS every write relay. A brand-new user's
+// kind:0 lands on the write relays first (instantly) and only later
+// propagates to the indexers (minutes to hours of replication lag) -
+// reading only from indexers means newly-onboarded members show as
+// just an npub until the indexers catch up. Subscribing on the same
+// relays we publish to lets the live-sub push the new profile the
+// moment any of those relays accepts it. SimplePool dedupes events
+// across the set, so the visible behaviour is unchanged for stable
+// profiles. Order: indexers first (for hit-rate on older profiles),
+// then writers.
+const PROFILE_READ_RELAYS = [
+  "wss://purplepag.es",
+  "wss://user.kindpag.es",
+  "wss://relay.primal.net",
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+];
 
-const authSigner = (url: string) => (evt: EventTemplate): Promise<VerifiedEvent> => {
-  return new Promise((resolve, reject) => {
-    const authId = `a${++authSeq}`;
-    pendingAuth.set(authId, { resolve, reject });
-    broadcast({ type: "auth_required", authId, relay: url, template: evt });
-    setTimeout(() => {
-      if (pendingAuth.delete(authId)) {
-        reject(new Error("AUTH signer timeout"));
-      }
-    }, 30_000);
-  });
+// NIP-42 AUTH: relays challenge us mid-subscription. The worker now owns
+// the signer (see signerSvc below), so we sign in-process instead of
+// bouncing the challenge to a tab.
+const authSigner = (_url: string) => async (evt: EventTemplate): Promise<VerifiedEvent> => {
+  return await signerSvcSign(evt) as VerifiedEvent;
 };
 
 // Tracks relays known-connected at the worker level so a tab joining
@@ -456,20 +460,15 @@ function handleMessage(port: MessagePort, data: any) {
     case "profile_publish":
       doProfilePublish(port, data.event);
       break;
-    case "auth_response": {
-      const pending = pendingAuth.get(data.authId);
-      if (!pending) return;
-      pendingAuth.delete(data.authId);
-      pending.resolve(data.event as VerifiedEvent);
+    case "signer_request":
+      handleSignerRequest(port, data.reqId, data.method, data.params);
       break;
-    }
-    case "auth_error": {
-      const pending = pendingAuth.get(data.authId);
-      if (!pending) return;
-      pendingAuth.delete(data.authId);
-      pending.reject(new Error(data.message || "auth failed"));
+    case "signer_abort_pair":
+      signerSvcAbortPair(data.reqId);
       break;
-    }
+    case "signer_nip07_sign_response":
+      signerSvcNip07Reply(data.reqId, data.signed, data.error);
+      break;
     case "connect": {
       // onRelayConnectionSuccess fires once per pool-level connect, not
       // per tab; ack THIS port via ensureRelay's per-call resolution
@@ -536,4 +535,227 @@ sw.onconnect = (e: MessageEvent) => {
   ports.add(port);
   port.onmessage = (ev: MessageEvent) => handleMessage(port, ev.data);
   port.start();
+  // Replay every relay we already have a live connection to. Without
+  // this, a freshly-loaded tab sees an empty connectedUrls set until
+  // its first connect() round-trips - which surfaces as a brief
+  // "Reconnecting…" / OFF AIR flash on every page refresh, even
+  // though the SharedWorker's pool was already up.
+  for (const url of connectedRelays) {
+    port.postMessage({ type: "connected", relay: url });
+  }
 };
+
+// ── Signer service ────────────────────────────────────────────────
+//
+// Singleton holding whichever signer is currently active across all tabs:
+// a local privkey, a NIP-07 reverse-stub (asks a tab's window.nostr to
+// sign), or a NIP-46 BunkerSigner (encrypted relay RPC). signEvent calls
+// from any tab — and AUTH challenges raised by the worker's own relay
+// pools — flow through this module.
+//
+// Wire protocol: see signerRpc.ts. Methods accepted via signer_request:
+//   • connect      — params is a SignerSetup discriminated union
+//   • sign_event   — params: { unsigned }
+//   • close        — no params
+//   • export_nsec  — only valid when active signer is local
+
+interface BunkerSession {
+  clientSk: Uint8Array;
+  signerPubkey: string;
+  relays: string[];
+  secret: string | null;
+}
+
+type ActiveSigner =
+  | { kind: "local";  privkey: Uint8Array; pubkey: string }
+  | { kind: "nip07";  pubkey: string; sourcePort: MessagePort }
+  | { kind: "bunker"; bunker: BunkerSigner; pubkey: string; session: BunkerSession };
+
+let active: ActiveSigner | null = null;
+const pendingPair = new Map<string, AbortController>();
+
+function bytesToHex(b: Uint8Array): string {
+  let s = "";
+  for (const x of b) s += x.toString(16).padStart(2, "0");
+  return s;
+}
+
+function randomHex(n: number): string {
+  const a = new Uint8Array(n);
+  crypto.getRandomValues(a);
+  return bytesToHex(a);
+}
+
+function signerOk(port: MessagePort, reqId: string, result: any) {
+  port.postMessage({ type: "signer_response", reqId, result });
+}
+function signerErr(port: MessagePort, reqId: string, message: string) {
+  port.postMessage({ type: "signer_error", reqId, message });
+}
+function signerEvent(port: MessagePort, reqId: string, event: string, data: any) {
+  port.postMessage({ type: "signer_event", reqId, event, data });
+}
+
+async function handleSignerRequest(port: MessagePort, reqId: string, method: string, params: any) {
+  try {
+    switch (method) {
+      case "connect":     await signerSvcConnect(port, reqId, params); break;
+      case "sign_event":  signerOk(port, reqId, await signerSvcSign(params.unsigned)); break;
+      case "close":       signerOk(port, reqId, signerSvcClose()); break;
+      case "export_nsec": signerOk(port, reqId, signerSvcExportNsec()); break;
+      default:            signerErr(port, reqId, `unknown signer method: ${method}`);
+    }
+  } catch (e: any) {
+    signerErr(port, reqId, String(e?.message || e || "signer error"));
+  }
+}
+
+async function signerSvcConnect(port: MessagePort, reqId: string, setup: any): Promise<void> {
+  // Replace any prior signer when a new connect lands.
+  if (active) signerSvcClose();
+
+  if (setup.type === "local") {
+    const privkey: Uint8Array = setup.privkey;
+    const pubkey = pubFromSk(privkey);
+    active = { kind: "local", privkey, pubkey };
+    signerOk(port, reqId, { pubkey, hasLocalKey: true });
+    return;
+  }
+
+  if (setup.type === "nip07") {
+    active = { kind: "nip07", pubkey: setup.pubkey, sourcePort: port };
+    signerOk(port, reqId, { pubkey: setup.pubkey, hasLocalKey: false });
+    return;
+  }
+
+  if (setup.type === "bunker") {
+    if (setup.via === "qr") {
+      const clientSk = generateSecretKey();
+      const secret = randomHex(32);
+      const uri = createNostrConnectURI({
+        clientPubkey: pubFromSk(clientSk),
+        relays: setup.relays,
+        secret,
+        name: setup.name ?? "Orbee",
+        url: setup.url,
+        image: setup.image,
+      });
+      signerEvent(port, reqId, "uri", { uri });
+
+      const ac = new AbortController();
+      pendingPair.set(reqId, ac);
+      try {
+        const bunker = await BunkerSigner.fromURI(clientSk, uri, {}, ac.signal);
+        await bunker.connect();                     // NIP-46 §4.2 explicit connect ack
+        const pubkey = await bunker.getPublicKey();
+        const session: BunkerSession = {
+          clientSk,
+          signerPubkey: bunker.bp.pubkey,
+          relays: bunker.bp.relays,
+          secret: bunker.bp.secret,
+        };
+        active = { kind: "bunker", bunker, pubkey, session };
+        signerOk(port, reqId, { pubkey, session, hasLocalKey: false });
+      } finally {
+        pendingPair.delete(reqId);
+      }
+      return;
+    }
+
+    if (setup.via === "uri") {
+      const bp = await parseBunkerInput(setup.url);
+      if (!bp) throw new Error("Invalid bunker URL");
+      const clientSk = generateSecretKey();
+      const bunker = BunkerSigner.fromBunker(clientSk, bp);
+      await bunker.connect();
+      const pubkey = await bunker.getPublicKey();
+      const session: BunkerSession = {
+        clientSk,
+        signerPubkey: bp.pubkey,
+        relays: bp.relays,
+        secret: bp.secret,
+      };
+      active = { kind: "bunker", bunker, pubkey, session };
+      signerOk(port, reqId, { pubkey, session, hasLocalKey: false });
+      return;
+    }
+
+    if (setup.via === "session") {
+      const session: BunkerSession = setup.session;
+      const bp: BunkerPointer = {
+        pubkey: session.signerPubkey,
+        relays: session.relays,
+        secret: session.secret,
+      };
+      const bunker = BunkerSigner.fromBunker(session.clientSk, bp);
+      await bunker.connect();
+      const pubkey = await bunker.getPublicKey();
+      active = { kind: "bunker", bunker, pubkey, session };
+      signerOk(port, reqId, { pubkey, session, hasLocalKey: false });
+      return;
+    }
+  }
+
+  throw new Error(`unknown signer setup: ${JSON.stringify(setup)}`);
+}
+
+async function signerSvcSign(unsigned: { kind: number; content: string; tags: string[][]; created_at?: number }): Promise<any> {
+  const a = active;
+  if (!a) throw new Error("no active signer");
+  const created_at = unsigned.created_at ?? Math.floor(Date.now() / 1000);
+  if (a.kind === "local") {
+    return finalizeEvent({ kind: unsigned.kind, content: unsigned.content, tags: unsigned.tags, created_at }, a.privkey);
+  }
+  if (a.kind === "bunker") {
+    return await a.bunker.signEvent({ kind: unsigned.kind, content: unsigned.content, tags: unsigned.tags, created_at });
+  }
+  // nip07: bounce to the tab that set up this signer; only that tab has window.nostr.
+  return await nip07Sign(a, { kind: unsigned.kind, content: unsigned.content, tags: unsigned.tags, created_at });
+}
+
+const pendingNip07 = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+let nip07Seq = 0;
+
+function nip07Sign(a: { sourcePort: MessagePort }, unsigned: any): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const reqId = `n${++nip07Seq}`;
+    pendingNip07.set(reqId, { resolve, reject });
+    a.sourcePort.postMessage({ type: "signer_nip07_sign_required", reqId, unsigned });
+    // No artificial timeout; the tab's window.nostr is bounded by user
+    // approval like any other signer.
+  });
+}
+
+function signerSvcNip07Reply(reqId: string, signed: any, error: string | undefined) {
+  const p = pendingNip07.get(reqId);
+  if (!p) return;
+  pendingNip07.delete(reqId);
+  if (error) p.reject(new Error(error));
+  else p.resolve(signed);
+}
+
+function signerSvcClose(): null {
+  const a = active;
+  active = null;
+  if (a?.kind === "bunker") {
+    try { a.bunker.close(); } catch { /* best-effort */ }
+  }
+  for (const ac of pendingPair.values()) ac.abort();
+  pendingPair.clear();
+  for (const p of pendingNip07.values()) p.reject(new Error("signer closed"));
+  pendingNip07.clear();
+  return null;
+}
+
+function signerSvcAbortPair(reqId: string): void {
+  const ac = pendingPair.get(reqId);
+  if (ac) { ac.abort(); pendingPair.delete(reqId); }
+}
+
+function signerSvcExportNsec(): string {
+  const a = active;
+  if (!a || a.kind !== "local") throw new Error("active signer is not a local key");
+  // Caller renders an nsec1... bech32; we just return the raw hex privkey.
+  // (privkey-to-nsec encoding lives in main-thread keys.ts.)
+  return bytesToHex(a.privkey);
+}

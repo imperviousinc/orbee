@@ -1,8 +1,8 @@
 import { Show } from "solid-js";
-import { isLocalSigner, type Signer } from "../lib/signer";
+import { type Signer } from "../lib/signer";
 import { snoozeBackup, useBackupState } from "../lib/backup";
 
-/** Backup nag banner for LocalSigner sessions only (extensions/bunkers don't
+/** Backup nag banner for local-key sessions only (extensions/bunkers don't
  *  expose the key). Snoozable (1h) or click-through to BackupView. */
 export default function BackupBanner(props: { signer: Signer; onOpen: () => void }) {
   const state = useBackupState(() => props.signer.pubkey);
@@ -11,7 +11,7 @@ export default function BackupBanner(props: { signer: Signer; onOpen: () => void
     snoozeBackup(props.signer.pubkey);
   }
 
-  if (!isLocalSigner(props.signer)) return null;
+  if (!props.signer.hasLocalKey) return null;
 
   return (
     <Show when={state().shouldShow}>

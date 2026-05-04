@@ -116,7 +116,7 @@ export default function RightSidebar(props: {
       <TrustAnchor />
 
       <div class="rs-header">
-        Members <span class="rs-header-n">- {members().length}</span>
+        Members <span class="rs-header-n">{members().length}</span>
       </div>
 
       <Show when={iAmAdmin() && props.station}>
@@ -150,7 +150,7 @@ export default function RightSidebar(props: {
                     style={{ color: reqIdentity().hasHandle ? handleColor(req.pubkey) : "var(--text-secondary)" }}
                     onClick={(e) => { e.stopPropagation(); toggleProfileCard(req.pubkey, e.clientX, e.clientY); }}
                     data-profile-trigger
-                    title="View profile"
+                    data-tip={reqIdentity().hasHandle ? reqIdentity().primary : undefined}
                   >
                     <IdentityPrimary identity={reqIdentity()} />
                   </div>
@@ -216,7 +216,7 @@ export default function RightSidebar(props: {
                         style={{ color: memberIdentity().hasHandle ? handleColor(m.pubkey) : "var(--text-secondary)" }}
                         onClick={(e) => { e.stopPropagation(); toggleProfileCard(m.pubkey, e.clientX, e.clientY); }}
                         data-profile-trigger
-                        title="View profile"
+                        data-tip={memberIdentity().hasHandle ? memberIdentity().primary : undefined}
                       >
                         <IdentityPrimary identity={memberIdentity()} />
                       </span>

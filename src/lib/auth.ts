@@ -1,6 +1,4 @@
 import type { Signer } from "./signer";
-import { isLocalSigner } from "./signer";
-import type { Keypair } from "./keys";
 
 /**
  * Shared auth state accessible from any module. Set once at sign-in, read
@@ -31,18 +29,4 @@ export function getSigner(): Signer {
 
 export function isAuthenticated(): boolean {
   return current !== null;
-}
-
-/**
- * Back-compat escape hatch for the handful of code paths that need raw
- * keypair access (recovery-key reveal in ProfileEditor). Throws if the
- * current signer isn't local - those paths should gate their UI on
- * `isLocalSigner(signer)` before calling this.
- */
-export function getKeypair(): Keypair {
-  const s = getSigner();
-  if (!isLocalSigner(s)) {
-    throw new Error("getKeypair() called but the active signer is remote");
-  }
-  return s.keypair;
 }

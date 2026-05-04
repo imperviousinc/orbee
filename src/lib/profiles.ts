@@ -14,6 +14,12 @@ export interface Profile {
   about?: string;
   handle?: string;  // spaces protocol handle, e.g. "alice@bitcoin"
   fetchedAt: number;
+  // kind:0 is replaceable, but multiple read relays can hold different
+  // versions and we get them as separate sub events. Tracking the source
+  // event's created_at lets us drop stale versions that arrive after a
+  // newer one (the symptom: picture/handle flickering as old events
+  // overwrite fresh ones).
+  createdAt?: number;
 }
 
 const [profiles, setProfiles] = createStore<Record<string, Profile>>({});
@@ -134,8 +140,13 @@ export async function loadCachedProfiles() {
   return keys.length;
 }
 
-function processKind0(pubkey: string, content: string) {
+function processKind0(pubkey: string, content: string, createdAt: number) {
   try {
+    const existing = profiles[pubkey];
+    if (existing?.createdAt !== undefined && createdAt < existing.createdAt) {
+      // Older replica of a replaceable event - ignore.
+      return;
+    }
     const parsed = JSON.parse(content);
     const profile: Profile = {
       name: parsed.name ?? undefined,
@@ -144,6 +155,7 @@ function processKind0(pubkey: string, content: string) {
       about: parsed.about ?? undefined,
       handle: parsed.handle ?? undefined,
       fetchedAt: Date.now(),
+      createdAt,
     };
 
     console.log("[profile/kind0]", {
@@ -164,6 +176,7 @@ function processKind0(pubkey: string, content: string) {
       about: profile.about,
       handle: profile.handle,
       fetchedAt: profile.fetchedAt,
+      createdAt: profile.createdAt,
     });
 
     dbPutBatch([[pubkey, profile]]).catch(() => {});
@@ -185,9 +198,37 @@ const BATCH_DELAY = 50;
 const MAX_LIVE_AUTHORS = 50;
 // Coalesce live-sub recreates so a burst of touches makes one new sub.
 const LIVE_REFRESH_DEBOUNCE = 300;
+// Empty-profile retry window: a brand-new account's kind:0 hasn't always
+// propagated to all relays by the time we first ask. Re-poll every minute
+// for up to 30 minutes; after that, fall back to the regular STALE_MS so
+// we stop hammering relays for pubkeys that genuinely have no profile.
+const EMPTY_RETRY_INTERVAL_MS = 60 * 1000;
+const EMPTY_GIVE_UP_MS = 30 * 60 * 1000;
+
+function profileIsMeaningful(p: Profile | undefined): boolean {
+  return !!(p && (p.display_name || p.name || p.handle || p.picture || p.about));
+}
+
+// Pubkey → timestamp of the first request that returned no meaningful
+// kind:0. Cleared when the profile fills in or we hit the give-up window.
+const emptyFirstSeen = new Map<string, number>();
 
 const pendingPubkeys = new Set<string>();
 let batchTimer: number | null = null;
+
+window.setInterval(() => {
+  if (emptyFirstSeen.size === 0) return;
+  const now = Date.now();
+  const toRetry: string[] = [];
+  for (const [pk, firstAt] of emptyFirstSeen) {
+    if (profileIsMeaningful(profiles[pk])) { emptyFirstSeen.delete(pk); continue; }
+    if (now - firstAt >= EMPTY_GIVE_UP_MS) { emptyFirstSeen.delete(pk); continue; }
+    toRetry.push(pk);
+  }
+  if (toRetry.length === 0) return;
+  for (const pk of toRetry) pendingPubkeys.add(pk);
+  if (!batchTimer) batchTimer = window.setTimeout(flushBatch, BATCH_DELAY);
+}, EMPTY_RETRY_INTERVAL_MS);
 
 function flushBatch() {
   batchTimer = null;
@@ -197,7 +238,7 @@ function flushBatch() {
   let subId: string | null = null;
   subId = relay.subscribe(
     { kinds: [0], authors },
-    (event) => processKind0(event.pubkey, event.content),
+    (event) => processKind0(event.pubkey, event.content, event.created_at),
     () => { if (subId) relay.unsubscribe(subId); },
   );
 }
@@ -249,7 +290,7 @@ function refreshLiveSub() {
   liveSubAuthors = next;
   liveSubId = relay.subscribe(
     { kinds: [0], authors: next },
-    (event) => processKind0(event.pubkey, event.content),
+    (event) => processKind0(event.pubkey, event.content, event.created_at),
   );
 }
 
@@ -261,6 +302,13 @@ export function requestProfiles(pubkeys: string[]) {
     const isStale = !cached || now - cached.fetchedAt >= STALE_MS;
     if (isStale) pendingPubkeys.add(pk);
     if (touchLiveAuthor(pk)) liveDirty = true;
+    // Mark empty/unknown profiles for the periodic retry timer above.
+    // firstAt is set once and stays put across retries so we know when
+    // to stop; the interval clears the entry when profile fills in or
+    // EMPTY_GIVE_UP_MS elapses.
+    if (!profileIsMeaningful(cached) && !emptyFirstSeen.has(pk)) {
+      emptyFirstSeen.set(pk, now);
+    }
   }
   if (pendingPubkeys.size > 0 && !batchTimer) {
     batchTimer = window.setTimeout(flushBatch, BATCH_DELAY);
@@ -526,6 +574,7 @@ export async function publishProfile(signer: Signer, edit: ProfileEdit) {
     picture: merged.picture,
     about: merged.about,
     fetchedAt: Date.now(),
+    createdAt: event.created_at,
   };
   setProfiles(signer.pubkey, { ...(existing || {}), ...nextProfile });
 

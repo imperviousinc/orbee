@@ -10,6 +10,7 @@ import { stationActivity, sortedJoinedStations } from "../lib/stationActivity";
 import SpacesLogo from "./SpacesLogo";
 import StationScope from "./StationScope";
 import { sidebarWidth, setSidebarWidth } from "../lib/sidebarState";
+import { isRelayConnected } from "../lib/nostr";
 
 export default function LeftSidebar(props: {
   signer: Signer;
@@ -154,13 +155,14 @@ export default function LeftSidebar(props: {
             const activity = () => stationActivity[stationKey(s)];
             const unread = () => activity()?.unreadCount ?? 0;
             const lit = () => isActive(s) || hovered();
+            const offline = () => isActive(s) && !isRelayConnected(s.relay);
             return (
               <li
-                class={`channel ${isActive(s) ? "active" : ""} ${hovered() ? "hovered" : ""}`}
+                class={`channel ${isActive(s) ? "active" : ""} ${hovered() ? "hovered" : ""} ${offline() ? "is-offline" : ""}`}
                 onClick={() => props.onSelectStation(s)}
                 onMouseEnter={() => setHovered(true)}
                 onMouseLeave={() => setHovered(false)}
-                data-label={stationLabel(s)}
+                data-label={offline() ? `${stationLabel(s)} — can't reach relay` : stationLabel(s)}
               >
                 <StationScope
                   stationId={s.id}
@@ -169,6 +171,7 @@ export default function LeftSidebar(props: {
                   animated={lit()}
                   accent={lit()}
                   transparentBg
+                  offline={offline()}
                 />
                 <span class="ch-freq">{stationLabel(s)}</span>
                 <Show when={unread() > 0}>

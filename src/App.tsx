@@ -9,14 +9,14 @@ import {
   markPubkeyVerifiedHandle,
 } from "./lib/handle";
 import ClaimHandle from "./components/ClaimHandle";
-import { LocalSigner, Nip07Signer, Nip46Signer } from "./lib/signer";
+import { Signer } from "./lib/signer";
 import type { AuthState } from "./lib/auth";
 import { setMyPubkey } from "./lib/reactions";
 import { setAuth as setGlobalAuth } from "./lib/auth";
 import { preloadFabric, setSemiTrust, getTrustedId } from "./lib/fabric";
 import { fetchDefaultAnchor } from "./lib/spacesAnchors";
 import { closeMessageContext } from "./lib/contextMenu";
-import { getRelay, setGlobalAuthSigner, profileRelay, STATIONS_RELAY_URL } from "./lib/nostr";
+import { getRelay, profileRelay, STATIONS_RELAY_URL, isRelayConnected } from "./lib/nostr";
 import {
   activeStation,
   setActiveStation,
@@ -25,7 +25,6 @@ import {
   seedStations,
   subscribeStationsMetadata,
   hydrateStationMetadataFromCache,
-  discoverJoinedStations,
   subscribeJoinRequests,
   unsubscribeJoinRequests,
   visiblePendingRequests,
@@ -69,12 +68,12 @@ import { confirmDialog } from "./lib/dialog";
 
 export default function App() {
   const stored = loadAuth();
-  const initial: AuthState | null = buildInitialAuth(stored);
-  if (initial) {
-    bootSession(initial);
-  }
-
-  const [auth, setAuth] = createSignal<AuthState | null>(initial);
+  const [auth, setAuth] = createSignal<AuthState | null>(null);
+  // Distinguishes "still spinning up the signer in the worker" from
+  // "logged out". On a fresh visit (no stored auth) restore is a no-op
+  // and bootDone flips immediately; on a returning visit it flips after
+  // Signer.connect resolves (or fails).
+  const [bootDone, setBootDone] = createSignal(stored == null);
 
   async function forceSignOut() {
     await wipeAccountData();
@@ -82,51 +81,27 @@ export default function App() {
     window.location.href = "/";
   }
 
-  if (stored?.method === "nip07") {
-    Nip07Signer.init()
-      .then((signer) => {
-        // Different account selected in the extension - that's a real
-        // identity change, sign out for safety.
-        if (signer.pubkey !== stored.pubkey) {
-          forceSignOut();
-          return;
+  // Async restore from stored auth. We don't seed a synchronous stub
+  // signer first - the worker is the only place a real signer can live,
+  // and its first signEvent isn't valid until Signer.connect resolves.
+  if (stored) {
+    (async () => {
+      try {
+        const a = await restoreFromStored(stored, forceSignOut);
+        if (a) {
+          await bootSession(a);
+          setAuth(a);
         }
-        const refreshed: AuthState = { handle: "", signer };
-        setGlobalAuth(refreshed);
-        setGlobalAuthSigner(signer);
-        setAuth(refreshed);
-      })
-      .catch((e) => {
-        // Transient init failure (extension slow/locked, page raced
-        // injection). Keep the stub signer; user retries via UI.
-        console.warn("[auth] nip07 init failed:", e);
-      });
+      } catch (e) {
+        console.warn("[auth] restore failed:", e);
+      } finally {
+        setBootDone(true);
+      }
+    })();
   }
 
-  if (stored?.method === "bunker") {
-    Nip46Signer.fromSession({
-      clientSk: hexToBytes(stored.session.clientSkHex),
-      signerPubkey: stored.session.signerPubkey,
-      relays: stored.session.relays,
-      secret: stored.session.secret,
-    })
-      .then((signer) => {
-        if (signer.pubkey !== stored.session.userPubkey) {
-          forceSignOut();
-          return;
-        }
-        const refreshed: AuthState = { handle: "", signer };
-        setGlobalAuth(refreshed);
-        setGlobalAuthSigner(signer);
-        setAuth(refreshed);
-      })
-      .catch((e) => {
-        console.warn("[auth] bunker reconnect failed:", e);
-      });
-  }
-
-  function handleAuth(a: AuthState) {
-    bootSession(a);
+  async function handleAuth(a: AuthState) {
+    await bootSession(a);
     setAuth(a);
   }
 
@@ -156,20 +131,22 @@ export default function App() {
 
   return (
     <>
-      <Show when={auth()} fallback={<SignIn onAuth={handleAuth} />}>
-        {(a) => (
-          <Show
-            when={needsHandleClaim(a().signer.pubkey)}
-            fallback={<Board auth={a()} />}
-          >
-            <ClaimHandle
-              auth={a()}
-              initialPick={pickFromUrl()}
-              onClaimed={bumpHandleTick}
-              onSkip={bumpHandleTick}
-            />
-          </Show>
-        )}
+      <Show when={bootDone()} fallback={null}>
+        <Show when={auth()} fallback={<SignIn onAuth={handleAuth} />}>
+          {(a) => (
+            <Show
+              when={needsHandleClaim(a().signer.pubkey)}
+              fallback={<Board auth={a()} />}
+            >
+              <ClaimHandle
+                auth={a()}
+                initialPick={pickFromUrl()}
+                onClaimed={bumpHandleTick}
+                onSkip={bumpHandleTick}
+              />
+            </Show>
+          )}
+        </Show>
       </Show>
       <MessageContextMenu />
       <ProfileCard />
@@ -178,23 +155,78 @@ export default function App() {
   );
 }
 
-function buildInitialAuth(stored: StoredAuth | null): AuthState | null {
-  if (!stored) return null;
-  if (stored.method === "local") {
-    return { handle: stored.handle, signer: new LocalSigner(stored.keypair) };
-  }
-  if (stored.method === "nip07") {
-    return { handle: "", signer: new Nip07Signer(stored.pubkey) };
-  }
-  // bunker: stub signer carrying last-known pubkey; real Nip46Signer
-  // is swapped in post-mount once fromSession reconnects.
-  return { handle: "", signer: new Nip07Signer(stored.session.userPubkey) };
+function waitForNip07(timeoutMs: number): Promise<any> {
+  return new Promise((resolve) => {
+    const wn = (window as any).nostr;
+    if (wn) return resolve(wn);
+    const start = Date.now();
+    const tick = () => {
+      const w = (window as any).nostr;
+      if (w) return resolve(w);
+      if (Date.now() - start >= timeoutMs) return resolve(null);
+      setTimeout(tick, 100);
+    };
+    setTimeout(tick, 100);
+  });
 }
 
-function bootSession(a: AuthState) {
+async function restoreFromStored(
+  stored: StoredAuth,
+  forceSignOut: () => Promise<void>,
+): Promise<AuthState | null> {
+  if (stored.method === "local") {
+    const signer = await Signer.connect({ type: "local", privkey: stored.keypair.privkey });
+    return { handle: stored.handle, signer };
+  }
+  if (stored.method === "nip07") {
+    // Extensions inject window.nostr asynchronously during page load - on
+    // a refresh, restore can fire before injection completes. Poll briefly
+    // before giving up; users without the extension installed still hit
+    // the throw after the timeout.
+    const wn = await waitForNip07(3000);
+    if (!wn) {
+      throw new Error("NIP-07 extension not found");
+    }
+    const pubkey = await wn.getPublicKey();
+    if (pubkey !== stored.pubkey) {
+      // Different account selected in the extension - that's an identity
+      // change, sign out for safety.
+      await forceSignOut();
+      return null;
+    }
+    const signer = await Signer.connect({ type: "nip07", pubkey });
+    return { handle: "", signer };
+  }
+  // Bunker: build a Signer immediately from the stored userPubkey + session
+  // so the user stays in the app on refresh even if the remote signer
+  // (Amber, nsec.app, etc.) is offline at boot. The worker reconnect runs
+  // in the background; signEvent will fail with a clear error until it
+  // succeeds, but navigation / cached views work normally - much better
+  // UX than dumping the user to SignIn just because their bunker is
+  // momentarily unreachable.
+  const session = {
+    clientSk: hexToBytes(stored.session.clientSkHex),
+    signerPubkey: stored.session.signerPubkey,
+    relays: stored.session.relays,
+    secret: stored.session.secret,
+  };
+  const stubSigner = new Signer(stored.session.userPubkey, session, false);
+  Signer.connect({ type: "bunker", via: "session", session })
+    .then((real) => {
+      if (real.pubkey !== stored.session.userPubkey) {
+        // Reconnected to a different identity - that's a real sign-out.
+        forceSignOut();
+      }
+    })
+    .catch((e) => {
+      console.warn("[auth] bunker reconnect failed; signing will error until the signer comes back:", e);
+    });
+  return { handle: "", signer: stubSigner };
+}
+
+async function bootSession(a: AuthState) {
   setMyPubkey(a.signer.pubkey);
   setGlobalAuth(a);
-  setGlobalAuthSigner(a.signer);
   profileRelay.connect();
   requestProfilesPriority([a.signer.pubkey]);
   seedStations();
@@ -206,7 +238,10 @@ function bootSession(a: AuthState) {
   // Defer kind:9 activity subs so the initial Feed render isn't
   // competing with the burst of events for OTHER stations on the same relay.
   setTimeout(bootStationActivity, 800);
-  discoverJoinedStations(a.signer.pubkey);
+  // Cross-device station rediscovery is no longer auto-run on boot - it
+  // forced an AUTH prompt against groups.0xchat.com for users who may
+  // not even use that relay. Triggered explicitly from the Discover
+  // tab's "Import from relay" UI now.
   preloadFabric();
   ensureDefaultSemiTrust().catch((e) =>
     console.warn("[boot] default semi-trust setup failed:", e),
@@ -221,7 +256,10 @@ async function ensureDefaultSemiTrust(): Promise<void> {
 }
 
 function Board(props: { auth: AuthState }) {
-  const { signer } = props.auth;
+  // Read signer through a getter, not by destructuring at component init.
+  // The Signer instance can be replaced if the auth flow ever reissues one
+  // (e.g. on reconnect); a captured const would freeze on the original.
+  const signer = () => props.auth.signer;
   const [feedEvents, setFeedEvents] = createSignal<NostrEvent[]>([]);
   const [leftOpen, setLeftOpen] = createSignal(false);
   const [rightOpen, setRightOpen] = createSignal(false);
@@ -267,7 +305,7 @@ function Board(props: { auth: AuthState }) {
   }
 
   async function handleLogout() {
-    if (hasUnbackedKey(signer.pubkey)) {
+    if (hasUnbackedKey(signer().pubkey)) {
       const ok = await confirmDialog({
         title: "Sign out without backing up?",
         body: "You haven't saved your recovery key yet. If you sign out now, you won't be able to get back into this account.",
@@ -327,7 +365,7 @@ function Board(props: { auth: AuthState }) {
   createEffect(() => {
     const s = activeStation();
     if (!s) return;
-    if (!isAdminOf(s, signer.pubkey)) return;
+    if (!isAdminOf(s, signer().pubkey)) return;
     subscribeJoinRequests(s);
     onCleanup(() => unsubscribeJoinRequests(s));
   });
@@ -343,7 +381,7 @@ function Board(props: { auth: AuthState }) {
       confirmLabel: "Leave",
       destructive: true,
     })) return;
-    await requestLeave(signer, s);
+    await requestLeave(signer(), s);
     forgetStation(s);
     const remaining = loadStoredStations();
     setActiveStation(remaining[0] || null);
@@ -396,6 +434,13 @@ function Board(props: { auth: AuthState }) {
 
   const inTakeoverMode = () =>
     !!(previewStation() || editingStation() || editingProfile() || viewingProfile() || showingBackup());
+
+  // True when the user is reading/writing in a station — i.e. the chat is
+  // the foreground surface. False during onboarding takeovers (preview /
+  // settings / profile / backup) and the empty/no-station state. Drives
+  // the wallpaper-pattern toggle on .app-wrap so the grid only shows when
+  // it acts as scaffolding (between things), not as chat noise.
+  const inChat = () => !inTakeoverMode() && !!activeStation();
 
   function closeTakeover() {
     if (previewStation()) { cancelPreview(); return; }
@@ -465,14 +510,14 @@ function Board(props: { auth: AuthState }) {
   });
 
   return (
-    <div class="app-wrap">
-      <BackupBanner signer={signer} onOpen={() => { setShowingBackup(true); setLeftOpen(false); }} />
+    <div class={`app-wrap ${inChat() ? "is-in-chat" : ""}`}>
+      <BackupBanner signer={signer()} onOpen={() => { setShowingBackup(true); setLeftOpen(false); }} />
       <div
         class={`app-grid ${leftOpen() ? "left-open" : ""} ${rightOpen() ? "right-open" : ""} ${isSidebarExpanded() ? "sidebar-expanded" : ""}`}
         style={{ "--sidebar-width": isSidebarExpanded() ? `${sidebarWidth()}px` : "68px" }}
       >
       <LeftSidebar
-        signer={signer}
+        signer={signer()}
         activeStation={activeStation()}
         onSelectStation={selectStation}
         onNewStation={startNewStation}
@@ -516,7 +561,7 @@ function Board(props: { auth: AuthState }) {
             <Show when={showStationMenu()}>
               <div class="mh-channel-menu" onClick={(e) => e.stopPropagation()}>
                 <div class="msg-mod-heading">Station</div>
-                <Show when={isAdminOf(activeStation(), signer.pubkey)}>
+                <Show when={isAdminOf(activeStation(), signer().pubkey)}>
                   <button class="msg-mod-item" onClick={() => { setShowStationMenu(false); setEditingStation(activeStation()); }}>
                     Station settings
                   </button>
@@ -530,10 +575,21 @@ function Board(props: { auth: AuthState }) {
           <span class="mh-sep" />
           <span class="mh-desc">{headerDesc()}</span>
           <Show when={activeStation() && !previewStation() && !editingStation() && !editingProfile() && !viewingProfile() && !showingBackup()}>
-            <span class="mh-ident" aria-hidden="true">
-              <span class="mh-onair-dot" />
-              <span class="mh-onair-text">ON AIR</span>
-            </span>
+            {(() => {
+              const onAir = () => {
+                const s = activeStation();
+                return s ? isRelayConnected(s.relay) : false;
+              };
+              return (
+                <span
+                  class={`mh-ident ${onAir() ? "is-on-air" : "is-off-air"}`}
+                  data-tip={onAir() ? undefined : `Can't reach ${activeStation()?.relay}`}
+                >
+                  <span class="mh-onair-dot" />
+                  <span class="mh-onair-text">{onAir() ? "ON AIR" : "Reconnecting…"}</span>
+                </span>
+              );
+            })()}
           </Show>
           <button
             class="mh-station"
@@ -541,10 +597,10 @@ function Board(props: { auth: AuthState }) {
             aria-label="Open station panel"
           >
             SIG
-            <Show when={visiblePendingRequests(activeStation(), signer.pubkey).length > 0}>
+            <Show when={visiblePendingRequests(activeStation(), signer().pubkey).length > 0}>
               <span
                 class="mh-station-dot"
-                title={`${visiblePendingRequests(activeStation(), signer.pubkey).length} pending request${visiblePendingRequests(activeStation(), signer.pubkey).length === 1 ? "" : "s"}`}
+                title={`${visiblePendingRequests(activeStation(), signer().pubkey).length} pending request${visiblePendingRequests(activeStation(), signer().pubkey).length === 1 ? "" : "s"}`}
               />
             </Show>
           </button>
@@ -603,7 +659,7 @@ function Board(props: { auth: AuthState }) {
                 when={pickerTab() === "discover" && previewStation()!.ref.id === ""}
                 fallback={
                   <StationPreview
-                    signer={signer}
+                    signer={signer()}
                     initial={previewStation()!.ref}
                     mode={previewStation()!.mode}
                     inviteCode={previewStation()!.inviteCode}
@@ -626,14 +682,14 @@ function Board(props: { auth: AuthState }) {
             </Match>
             <Match when={editingStation()}>
               <StationSettings
-                signer={signer}
+                signer={signer()}
                 station={editingStation()!}
                 onClose={() => setEditingStation(null)}
               />
             </Match>
             <Match when={editingProfile()}>
               <ProfileEditor
-                signer={signer}
+                signer={signer()}
                 onClose={() => setEditingProfile(false)}
               />
             </Match>
@@ -645,7 +701,7 @@ function Board(props: { auth: AuthState }) {
             </Match>
             <Match when={showingBackup()}>
               <BackupView
-                signer={signer}
+                signer={signer()}
                 onClose={() => setShowingBackup(false)}
               />
             </Match>
@@ -654,6 +710,7 @@ function Board(props: { auth: AuthState }) {
 
         {/* Keep-alive feed pool: every joined station's Feed stays mounted;
             only the active slot is display:flex. */}
+
         <div
           class="feed-pool"
           style={{ display: inTakeoverMode() ? "none" : "flex" }}
@@ -694,14 +751,14 @@ function Board(props: { auth: AuthState }) {
               if (!s) return true;
               const data = stations[stationKey(s)];
               if (!data || data.open !== false) return true;
-              return isAdminOf(s, signer.pubkey) || isMemberOf(s, signer.pubkey);
+              return isAdminOf(s, signer().pubkey) || isMemberOf(s, signer().pubkey);
             })()}
             fallback={
-              <RequestAccessBanner signer={signer} station={activeStation()!} />
+              <RequestAccessBanner signer={signer()} station={activeStation()!} />
             }
           >
             <MessageInput
-              signer={signer}
+              signer={signer()}
               station={activeStation()}
               stationLabel={currentLabel()}
               onPublished={(event) => {
